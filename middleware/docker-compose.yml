@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: ddos_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/sites:/etc/nginx/sites:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./certbot-www:/var/www/certbot:ro
+      - ./logs:/var/log/nginx
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - verification-service
+      - domain-manager
+    restart: unless-stopped
+    networks:
+      - ddos-network
+
+  verification-service:
+    build:
+      context: ./node-app
+      dockerfile: Dockerfile
+    container_name: ddos_verification
+    environment:
+      - NODE_ENV=production
+      - COOKIE_SECRET=${COOKIE_SECRET:-ChangeThisSecretKey123}
+    volumes:
+      - ./domains.json:/app/domains.json:ro
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - ddos-network
+    expose:
+      - "3000"
+
+  domain-manager:
+    build:
+      context: ./domain-manager
+      dockerfile: Dockerfile
+    container_name: ddos_manager
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-AdminSecurePass456}
+      - COOKIE_SECRET=${COOKIE_SECRET:-ChangeThisSecretKey123}
+      - SERVER_IP=${SERVER_IP}
+    volumes:
+      - ./domains.json:/app/domains.json
+      - ./nginx:/app/nginx
+      - ./certs:/app/certs
+      - ./logs:/app/logs
+      - /etc/letsencrypt:/etc/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - ddos-network
+
+networks:
+  ddos-network:
+    driver: bridge

@@ -1,0 +1,16 @@
+{
+  "name": "ddos-verification-service",
+  "version": "1.0.0",
+  "description": "DDoS Protection Verification Service",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cookie-parser": "^1.4.6",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0"
+  }
+}

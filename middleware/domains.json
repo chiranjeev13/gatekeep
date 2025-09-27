@@ -1,0 +1,17 @@
+{
+  "_metadata": {
+    "version": "1.0",
+    "lastUpdated": "2025-09-27T20:46:46.660Z",
+    "totalDomains": 1
+  },
+  "whatwasthatmeme.org": {
+    "origin": "216.198.79.1",
+    "password": "YourSecurePassword123",
+    "rateLimit": 10,
+    "rateLimitBurst": 5,
+    "cookieValidityHours": 24,
+    "ssl": true,
+    "active": true,
+    "createdAt": "2025-09-27T20:46:46.660Z"
+  }
+}
