@@ -40,7 +40,7 @@ async function initializeJsonFile() {
 async function loadProtectedWebsites() {
     try {
         await initializeJsonFile();
-        const data = await promises_1.default.readFile(PROTECTED_WEBSITES_FILE, 'utf8');
+        const data = await promises_1.default.readFile(PROTECTED_WEBSITES_FILE, "utf8");
         return JSON.parse(data);
     }
     catch (error) {
@@ -97,58 +97,107 @@ async function getProtectedWebsite(websiteUrl) {
 let protectedWebsites = {};
 // JWT Authentication Middleware (non-blocking version)
 const checkAuthToken = (req, res, next) => {
+    console.log(`🔍 [checkAuthToken] Processing request to ${req.method} ${req.path}`);
     // Try to get token from cookie first, then from Authorization header as fallback
     const token = req.cookies.access_token ||
         (req.headers["authorization"] &&
             req.headers["authorization"].split(" ")[1]);
     if (token) {
+        console.log(`🎟️ [checkAuthToken] Token found, verifying...`);
         jsonwebtoken_1.default.verify(token, JWT_SECRET, (err, user) => {
             if (!err) {
                 req.user = user;
                 req.isAuthenticated = true;
+                console.log(`✅ [checkAuthToken] Token verified successfully for user:`, user);
+            }
+            else {
+                console.log(`❌ [checkAuthToken] Token verification failed:`, err.message);
             }
         });
+    }
+    else {
+        console.log(`🚫 [checkAuthToken] No token found in request`);
     }
     next();
 };
 // Blocking authentication middleware for routes that require valid JWT
 const requireAuth = (req, res, next) => {
+    console.log(`🔐 [requireAuth] Checking authentication for ${req.method} ${req.path}`);
     if (!req.isAuthenticated) {
+        console.log(`❌ [requireAuth] Authentication required but user not authenticated`);
         return res
             .status(401)
             .json({ error: "Valid access token required" });
     }
+    console.log(`✅ [requireAuth] User authenticated, proceeding to route`);
     next();
 };
 // Custom middleware that checks auth first, then payment via settle endpoint
 const authOrPaymentMiddleware = async (req, res, next) => {
+    console.log(`💰 [authOrPaymentMiddleware] Processing request to ${req.method} ${req.path}`);
     // Get the origin/referer to determine which website is making the request
     const origin = req.headers.origin || req.headers.referer;
+    console.log(`🌐 [authOrPaymentMiddleware] Origin:`, origin);
     if (!origin) {
-        return next(); // No origin/referer, continue without protection
+        console.log(`⚠️ [authOrPaymentMiddleware] No origin/referer found, checking for authentication or payment`);
+        // If no origin but user is authenticated, allow access
+        if (req.isAuthenticated) {
+            console.log(`🔓 [authOrPaymentMiddleware] User authenticated without origin, serving content`);
+            return next();
+        }
+        // If no origin and no authentication, require payment
+        const { paymentPayload, paymentRequirements } = req.body || {};
+        if (!paymentPayload || !paymentRequirements) {
+            console.log(`💸 [authOrPaymentMiddleware] No origin, no auth, no payment - returning 402 Payment Required`);
+            return res.status(402).json({
+                error: "Payment Required",
+                paymentRequirements: {
+                    scheme: "exact",
+                    network: "polygon-amoy",
+                    payTo: DEFAULT_WALLET_ADDRESS,
+                    maxAmountRequired: "100", // 0.0001 USDC (6 decimals)
+                    maxTimeoutSeconds: 3600,
+                    asset: "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582", // USDC on Polygon Amoy
+                    resource: `https://localhost:${PORT}${req.path}`,
+                    description: "Premium content access",
+                    mimeType: "application/json",
+                },
+            });
+        }
+        // If payment is provided, continue to payment verification
+        console.log(`💳 [authOrPaymentMiddleware] Payment provided without origin, proceeding to verification`);
     }
     // Extract the base URL (protocol + domain) from origin
     let websiteUrl;
     try {
         const url = new URL(origin);
         websiteUrl = `${url.protocol}//${url.host}`;
+        console.log(`🔗 [authOrPaymentMiddleware] Extracted website URL:`, websiteUrl);
     }
     catch (error) {
+        console.log(`❌ [authOrPaymentMiddleware] Invalid URL format, continuing without protection:`, error);
         return next(); // Invalid URL, continue without protection
     }
     // Check if this website is protected
     const protectedWebsite = await getProtectedWebsite(websiteUrl);
     if (!protectedWebsite || !protectedWebsite.enabled) {
+        console.log(`🔓 [authOrPaymentMiddleware] Website not protected or disabled, continuing without protection`);
         return next(); // Not a protected website or disabled, continue
     }
+    console.log(`🛡️ [authOrPaymentMiddleware] Protected website found:`, protectedWebsite);
+    console.log(`🔐 [authOrPaymentMiddleware] User authenticated:`, req.isAuthenticated);
     // If user is already authenticated, serve content directly
     if (req.isAuthenticated) {
-        console.log(`🔓 User already authenticated for ${websiteUrl}, serving content directly`);
+        console.log(`🔓 [authOrPaymentMiddleware] User already authenticated for ${websiteUrl}, serving content directly`);
         return next();
     }
     // Check if payment payload is present in request
     const { paymentPayload, paymentRequirements } = req.body || {};
+    console.log(`💳 [authOrPaymentMiddleware] Checking for payment payload...`);
+    console.log(`💳 [authOrPaymentMiddleware] Payment payload present:`, !!paymentPayload);
+    console.log(`💳 [authOrPaymentMiddleware] Payment requirements present:`, !!paymentRequirements);
     if (!paymentPayload || !paymentRequirements) {
+        console.log(`💸 [authOrPaymentMiddleware] No payment found, returning 402 Payment Required`);
         // Return 402 Payment Required with payment requirements
         return res.status(402).json({
             error: "Payment Required",
@@ -166,6 +215,7 @@ const authOrPaymentMiddleware = async (req, res, next) => {
         });
     }
     try {
+        console.log(`🔄 [authOrPaymentMiddleware] Calling settle endpoint for payment verification...`);
         // Call the settle endpoint on the Polygon facilitator
         const settleResponse = await axios_1.default.post("https://polygon-facilitator.vercel.app/settle", {
             paymentPayload,
@@ -175,8 +225,10 @@ const authOrPaymentMiddleware = async (req, res, next) => {
                 "Content-Type": "application/json",
             },
         });
+        console.log(`📊 [authOrPaymentMiddleware] Settle response:`, settleResponse.data);
         // If settlement was successful, generate JWT token
         if (settleResponse.data.success === true) {
+            console.log(`✅ [authOrPaymentMiddleware] Payment settlement successful, generating JWT token...`);
             try {
                 const token = jsonwebtoken_1.default.sign({
                     website: websiteUrl,
@@ -192,37 +244,39 @@ const authOrPaymentMiddleware = async (req, res, next) => {
                     sameSite: "lax",
                     maxAge: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
                 });
-                console.log(`🎟️ JWT token generated and set for ${websiteUrl} after successful settlement`);
+                console.log(`🎟️ [authOrPaymentMiddleware] JWT token generated and set for ${websiteUrl} after successful settlement`);
                 req.isAuthenticated = true;
                 // Continue to the protected route
                 return next();
             }
             catch (error) {
-                console.error("Error generating JWT token:", error);
+                console.error(`❌ [authOrPaymentMiddleware] Error generating JWT token:`, error);
                 return res
                     .status(500)
                     .json({ error: "Internal server error" });
             }
         }
         else {
+            console.log(`❌ [authOrPaymentMiddleware] Payment settlement failed`);
             return res
                 .status(402)
                 .json({ error: "Payment settlement failed" });
         }
     }
     catch (error) {
-        console.error("Settle endpoint error:", error);
+        console.error(`❌ [authOrPaymentMiddleware] Settle endpoint error:`, error);
         if (axios_1.default.isAxiosError(error)) {
             const statusCode = error.response?.status || 500;
             const errorMessage = error.response?.data?.error || "Payment settlement failed";
+            console.log(`❌ [authOrPaymentMiddleware] Axios error - Status: ${statusCode}, Message: ${errorMessage}`);
             return res.status(statusCode).json({ error: errorMessage });
         }
+        console.log(`❌ [authOrPaymentMiddleware] Unknown error occurred`);
         return res.status(500).json({ error: "Internal server error" });
     }
 };
-// Apply middlewares in order
+// Apply checkAuthToken middleware to all routes
 app.use(checkAuthToken);
-app.use(authOrPaymentMiddleware);
 // Protected Websites Management Routes
 // GET /api/protected-websites - Get all protected websites
 app.get("/api/protected-websites", async (req, res) => {
@@ -400,7 +454,16 @@ app.get("/health", (req, res) => {
     });
 });
 // Premium endpoint - requires authentication (via existing JWT or payment)
-app.get("/api/premium", (req, res) => {
+app.get("/api/premium", authOrPaymentMiddleware, (req, res) => {
+    // Check if user is authenticated (either via JWT or payment verification)
+    if (!req.isAuthenticated) {
+        console.log("❌ [GET /api/premium] User not authenticated, returning 402");
+        return res.status(402).json({
+            error: "Payment Required",
+            message: "Authentication or payment required to access premium content"
+        });
+    }
+    console.log("✅ Premium content accessed!");
     res.json({
         message: "Premium content accessed!",
         access_method: req.isAuthenticated
@@ -415,7 +478,16 @@ app.get("/api/premium", (req, res) => {
     });
 });
 // Premium endpoint POST - handles payment and returns content
-app.post("/api/premium", (req, res) => {
+app.post("/api/premium", authOrPaymentMiddleware, (req, res) => {
+    // Check if user is authenticated (either via JWT or payment verification)
+    if (!req.isAuthenticated) {
+        console.log("❌ [POST /api/premium] User not authenticated, returning 402");
+        return res.status(402).json({
+            error: "Payment Required",
+            message: "Authentication or payment required to access premium content"
+        });
+    }
+    console.log("✅ Premium content accessed via payment!");
     res.json({
         message: "Premium content accessed via payment!",
         access_method: "Direct Payment",

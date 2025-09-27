@@ -27,7 +27,10 @@ app.use(cookieParser());
 const DEFAULT_WALLET_ADDRESS = "0x376b7271dD22D14D82Ef594324ea14e7670ed5b2";
 
 // Path to the JSON file for storing protected websites
-const PROTECTED_WEBSITES_FILE = path.join(process.cwd(), "protected-websites.json");
+const PROTECTED_WEBSITES_FILE = path.join(
+  process.cwd(),
+  "protected-websites.json"
+);
 
 // Interface for protected website configuration
 interface ProtectedWebsite {
@@ -49,15 +52,19 @@ async function initializeJsonFile(): Promise<void> {
   } catch (error) {
     // File doesn't exist, create it with empty object
     await fs.writeFile(PROTECTED_WEBSITES_FILE, JSON.stringify({}, null, 2));
-    console.log(`📄 Created new protected websites file: ${PROTECTED_WEBSITES_FILE}`);
+    console.log(
+      `📄 Created new protected websites file: ${PROTECTED_WEBSITES_FILE}`
+    );
   }
 }
 
 // Load protected websites from JSON file
-async function loadProtectedWebsites(): Promise<Record<string, ProtectedWebsite>> {
+async function loadProtectedWebsites(): Promise<
+  Record<string, ProtectedWebsite>
+> {
   try {
     await initializeJsonFile();
-    const data = await fs.readFile(PROTECTED_WEBSITES_FILE, 'utf8');
+    const data = await fs.readFile(PROTECTED_WEBSITES_FILE, "utf8");
     return JSON.parse(data);
   } catch (error) {
     console.error("Error loading protected websites from JSON file:", error);
@@ -66,9 +73,14 @@ async function loadProtectedWebsites(): Promise<Record<string, ProtectedWebsite>
 }
 
 // Save protected websites to JSON file
-async function saveProtectedWebsites(websites: Record<string, ProtectedWebsite>): Promise<void> {
+async function saveProtectedWebsites(
+  websites: Record<string, ProtectedWebsite>
+): Promise<void> {
   try {
-    await fs.writeFile(PROTECTED_WEBSITES_FILE, JSON.stringify(websites, null, 2));
+    await fs.writeFile(
+      PROTECTED_WEBSITES_FILE,
+      JSON.stringify(websites, null, 2)
+    );
   } catch (error) {
     console.error("Error saving protected websites to JSON file:", error);
     throw error;
@@ -124,6 +136,10 @@ const checkAuthToken = (
   res: express.Response,
   next: express.NextFunction
 ) => {
+  console.log(
+    `🔍 [checkAuthToken] Processing request to ${req.method} ${req.path}`
+  );
+
   // Try to get token from cookie first, then from Authorization header as fallback
   const token =
     req.cookies.access_token ||
@@ -131,12 +147,24 @@ const checkAuthToken = (
       req.headers["authorization"].split(" ")[1]);
 
   if (token) {
+    console.log(`🎟️ [checkAuthToken] Token found, verifying...`);
     jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
       if (!err) {
         (req as any).user = user;
         (req as any).isAuthenticated = true;
+        console.log(
+          `✅ [checkAuthToken] Token verified successfully for user:`,
+          user
+        );
+      } else {
+        console.log(
+          `❌ [checkAuthToken] Token verification failed:`,
+          err.message
+        );
       }
     });
+  } else {
+    console.log(`🚫 [checkAuthToken] No token found in request`);
   }
 
   next();
@@ -148,11 +176,20 @@ const requireAuth = (
   res: express.Response,
   next: express.NextFunction
 ) => {
+  console.log(
+    `🔐 [requireAuth] Checking authentication for ${req.method} ${req.path}`
+  );
+
   if (!(req as any).isAuthenticated) {
+    console.log(
+      `❌ [requireAuth] Authentication required but user not authenticated`
+    );
     return (res as any)
       .status(401)
       .json({ error: "Valid access token required" });
   }
+
+  console.log(`✅ [requireAuth] User authenticated, proceeding to route`);
   next();
 };
 
@@ -162,11 +199,55 @@ const authOrPaymentMiddleware = async (
   res: express.Response,
   next: express.NextFunction
 ) => {
+  console.log(
+    `💰 [authOrPaymentMiddleware] Processing request to ${req.method} ${req.path}`
+  );
+
   // Get the origin/referer to determine which website is making the request
   const origin = req.headers.origin || req.headers.referer;
 
+  console.log(`🌐 [authOrPaymentMiddleware] Origin:`, origin);
+
   if (!origin) {
-    return next(); // No origin/referer, continue without protection
+    console.log(
+      `⚠️ [authOrPaymentMiddleware] No origin/referer found, checking for authentication or payment`
+    );
+
+    // If no origin but user is authenticated, allow access
+    if ((req as any).isAuthenticated) {
+      console.log(
+        `🔓 [authOrPaymentMiddleware] User authenticated without origin, serving content`
+      );
+      return next();
+    }
+
+    // If no origin and no authentication, require payment
+    const { paymentPayload, paymentRequirements } = (req as any).body || {};
+
+    if (!paymentPayload || !paymentRequirements) {
+      console.log(
+        `💸 [authOrPaymentMiddleware] No origin, no auth, no payment - returning 402 Payment Required`
+      );
+      return (res as any).status(402).json({
+        error: "Payment Required",
+        paymentRequirements: {
+          scheme: "exact",
+          network: "polygon-amoy",
+          payTo: DEFAULT_WALLET_ADDRESS,
+          maxAmountRequired: "100", // 0.0001 USDC (6 decimals)
+          maxTimeoutSeconds: 3600,
+          asset: "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582", // USDC on Polygon Amoy
+          resource: `https://localhost:${PORT}${(req as any).path}`,
+          description: "Premium content access",
+          mimeType: "application/json",
+        },
+      });
+    }
+
+    // If payment is provided, continue to payment verification
+    console.log(
+      `💳 [authOrPaymentMiddleware] Payment provided without origin, proceeding to verification`
+    );
   }
 
   // Extract the base URL (protocol + domain) from origin
@@ -174,7 +255,15 @@ const authOrPaymentMiddleware = async (
   try {
     const url = new URL(origin);
     websiteUrl = `${url.protocol}//${url.host}`;
+    console.log(
+      `🔗 [authOrPaymentMiddleware] Extracted website URL:`,
+      websiteUrl
+    );
   } catch (error) {
+    console.log(
+      `❌ [authOrPaymentMiddleware] Invalid URL format, continuing without protection:`,
+      error
+    );
     return next(); // Invalid URL, continue without protection
   }
 
@@ -182,13 +271,25 @@ const authOrPaymentMiddleware = async (
   const protectedWebsite = await getProtectedWebsite(websiteUrl);
 
   if (!protectedWebsite || !protectedWebsite.enabled) {
+    console.log(
+      `🔓 [authOrPaymentMiddleware] Website not protected or disabled, continuing without protection`
+    );
     return (next as any)(); // Not a protected website or disabled, continue
   }
+
+  console.log(
+    `🛡️ [authOrPaymentMiddleware] Protected website found:`,
+    protectedWebsite
+  );
+  console.log(
+    `🔐 [authOrPaymentMiddleware] User authenticated:`,
+    (req as any).isAuthenticated
+  );
 
   // If user is already authenticated, serve content directly
   if ((req as any).isAuthenticated) {
     console.log(
-      `🔓 User already authenticated for ${websiteUrl}, serving content directly`
+      `🔓 [authOrPaymentMiddleware] User already authenticated for ${websiteUrl}, serving content directly`
     );
     return (next as any)();
   }
@@ -196,7 +297,20 @@ const authOrPaymentMiddleware = async (
   // Check if payment payload is present in request
   const { paymentPayload, paymentRequirements } = (req as any).body || {};
 
+  console.log(`💳 [authOrPaymentMiddleware] Checking for payment payload...`);
+  console.log(
+    `💳 [authOrPaymentMiddleware] Payment payload present:`,
+    !!paymentPayload
+  );
+  console.log(
+    `💳 [authOrPaymentMiddleware] Payment requirements present:`,
+    !!paymentRequirements
+  );
+
   if (!paymentPayload || !paymentRequirements) {
+    console.log(
+      `💸 [authOrPaymentMiddleware] No payment found, returning 402 Payment Required`
+    );
     // Return 402 Payment Required with payment requirements
     return (res as any).status(402).json({
       error: "Payment Required",
@@ -215,6 +329,10 @@ const authOrPaymentMiddleware = async (
   }
 
   try {
+    console.log(
+      `🔄 [authOrPaymentMiddleware] Calling settle endpoint for payment verification...`
+    );
+
     // Call the settle endpoint on the Polygon facilitator
     const settleResponse = await axios.post(
       "https://polygon-facilitator.vercel.app/settle",
@@ -229,8 +347,17 @@ const authOrPaymentMiddleware = async (
       }
     );
 
+    console.log(
+      `📊 [authOrPaymentMiddleware] Settle response:`,
+      settleResponse.data
+    );
+
     // If settlement was successful, generate JWT token
     if (settleResponse.data.success === true) {
+      console.log(
+        `✅ [authOrPaymentMiddleware] Payment settlement successful, generating JWT token...`
+      );
+
       try {
         const token = jwt.sign(
           {
@@ -254,40 +381,47 @@ const authOrPaymentMiddleware = async (
         });
 
         console.log(
-          `🎟️ JWT token generated and set for ${websiteUrl} after successful settlement`
+          `🎟️ [authOrPaymentMiddleware] JWT token generated and set for ${websiteUrl} after successful settlement`
         );
         (req as any).isAuthenticated = true;
 
         // Continue to the protected route
         return (next as any)();
       } catch (error) {
-        console.error("Error generating JWT token:", error);
+        console.error(
+          `❌ [authOrPaymentMiddleware] Error generating JWT token:`,
+          error
+        );
         return (res as any)
           .status(500)
           .json({ error: "Internal server error" });
       }
     } else {
+      console.log(`❌ [authOrPaymentMiddleware] Payment settlement failed`);
       return (res as any)
         .status(402)
         .json({ error: "Payment settlement failed" });
     }
   } catch (error) {
-    console.error("Settle endpoint error:", error);
+    console.error(`❌ [authOrPaymentMiddleware] Settle endpoint error:`, error);
 
     if (axios.isAxiosError(error)) {
       const statusCode = error.response?.status || 500;
       const errorMessage =
         error.response?.data?.error || "Payment settlement failed";
+      console.log(
+        `❌ [authOrPaymentMiddleware] Axios error - Status: ${statusCode}, Message: ${errorMessage}`
+      );
       return (res as any).status(statusCode).json({ error: errorMessage });
     }
 
+    console.log(`❌ [authOrPaymentMiddleware] Unknown error occurred`);
     return (res as any).status(500).json({ error: "Internal server error" });
   }
 };
 
-// Apply middlewares in order
+// Apply checkAuthToken middleware to all routes
 app.use(checkAuthToken);
-app.use(authOrPaymentMiddleware);
 
 // Protected Websites Management Routes
 // GET /api/protected-websites - Get all protected websites
@@ -480,7 +614,17 @@ app.get("/health", (req, res) => {
 });
 
 // Premium endpoint - requires authentication (via existing JWT or payment)
-app.get("/api/premium", (req, res) => {
+app.get("/api/premium", authOrPaymentMiddleware, (req, res) => {
+  // Check if user is authenticated (either via JWT or payment verification)
+  if (!(req as any).isAuthenticated) {
+    console.log("❌ [GET /api/premium] User not authenticated, returning 402");
+    return (res as any).status(402).json({
+      error: "Payment Required",
+      message: "Authentication or payment required to access premium content",
+    });
+  }
+
+  console.log("✅ Premium content accessed!");
   (res as any).json({
     message: "Premium content accessed!",
     access_method: (req as any).isAuthenticated
@@ -496,7 +640,17 @@ app.get("/api/premium", (req, res) => {
 });
 
 // Premium endpoint POST - handles payment and returns content
-app.post("/api/premium", (req, res) => {
+app.post("/api/premium", authOrPaymentMiddleware, (req, res) => {
+  // Check if user is authenticated (either via JWT or payment verification)
+  if (!(req as any).isAuthenticated) {
+    console.log("❌ [POST /api/premium] User not authenticated, returning 402");
+    return (res as any).status(402).json({
+      error: "Payment Required",
+      message: "Authentication or payment required to access premium content",
+    });
+  }
+
+  console.log("✅ Premium content accessed via payment!");
   (res as any).json({
     message: "Premium content accessed via payment!",
     access_method: "Direct Payment",

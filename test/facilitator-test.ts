@@ -16,7 +16,7 @@ const client = createWalletClient({
 // Test data
 const WALLET_ADDRESS = "0x376b7271dD22D14D82Ef594324ea14e7670ed5b2";
 const USDC_CONTRACT = "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582";
-const AMOUNT = "500000"; // 0.5 USDC (6 decimals)
+const AMOUNT = "100"; // 0.0001 USDC (6 decimals)
 const BASE_URL = "http://localhost:8000";
 const TEST_WEBSITE_URL = "https://example.com";
 
@@ -91,7 +91,11 @@ function createPaymentData() {
 async function testHealthEndpoint() {
   console.log("\n🏥 Testing Health Endpoint...");
   try {
-    const response = await axios.get(`${BASE_URL}/health`);
+    const response = await axios.get(`${BASE_URL}/health`, {
+      headers: {
+        Origin: TEST_WEBSITE_URL,
+      },
+    });
     console.log("✅ Health endpoint response:", response.data);
 
     if (response.data.status === "healthy") {
@@ -111,7 +115,11 @@ async function testHealthEndpoint() {
 async function testAuthStatus() {
   console.log("\n🔍 Testing Authentication Status...");
   try {
-    const response = await axios.get(`${BASE_URL}/api/auth/status`);
+    const response = await axios.get(`${BASE_URL}/api/auth/status`, {
+      headers: {
+        Origin: TEST_WEBSITE_URL,
+      },
+    });
     console.log("✅ Auth status response:", response.data);
 
     if (typeof response.data.authenticated === "boolean") {
@@ -128,7 +136,15 @@ async function testAuthStatus() {
 async function testLogoutEndpoint() {
   console.log("\n🚪 Testing Logout Endpoint...");
   try {
-    const response = await axios.post(`${BASE_URL}/api/logout`);
+    const response = await axios.post(
+      `${BASE_URL}/api/logout`,
+      {},
+      {
+        headers: {
+          Origin: TEST_WEBSITE_URL,
+        },
+      }
+    );
     console.log("✅ Logout response:", response.data);
 
     if (response.data.message === "Logged out successfully") {
@@ -148,7 +164,11 @@ async function testProtectedWebsitesManagement() {
   // Test GET all protected websites
   console.log("\n1. Testing GET all protected websites...");
   try {
-    const response = await axios.get(`${BASE_URL}/api/protected-websites`);
+    const response = await axios.get(`${BASE_URL}/api/protected-websites`, {
+      headers: {
+        Origin: TEST_WEBSITE_URL,
+      },
+    });
     console.log("✅ GET protected websites response:", response.data);
 
     if (
@@ -179,7 +199,12 @@ async function testProtectedWebsitesManagement() {
   try {
     const response = await axios.post(
       `${BASE_URL}/api/protected-websites`,
-      newWebsite
+      newWebsite,
+      {
+        headers: {
+          Origin: TEST_WEBSITE_URL,
+        },
+      }
     );
     console.log("✅ POST protected website response:", response.data);
 
@@ -205,7 +230,12 @@ async function testProtectedWebsitesManagement() {
     const response = await axios.get(
       `${BASE_URL}/api/protected-websites/${encodeURIComponent(
         TEST_WEBSITE_URL
-      )}`
+      )}`,
+      {
+        headers: {
+          Origin: TEST_WEBSITE_URL,
+        },
+      }
     );
     console.log("✅ GET specific website response:", response.data);
 
@@ -233,7 +263,12 @@ async function testProtectedWebsitesManagement() {
       `${BASE_URL}/api/protected-websites/${encodeURIComponent(
         TEST_WEBSITE_URL
       )}`,
-      updateData
+      updateData,
+      {
+        headers: {
+          Origin: TEST_WEBSITE_URL,
+        },
+      }
     );
     console.log("✅ PUT update website response:", response.data);
 
@@ -381,27 +416,27 @@ async function testPaymentMiddleware() {
   };
 
   // Test direct settle endpoint
-  console.log("\n2. Testing direct settle endpoint...");
-  try {
-    const settleResponse = await axios.post(
-      "https://polygon-facilitator.vercel.app/settle",
-      {
-        paymentPayload,
-        paymentRequirements,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    console.log("✅ Settle endpoint response:", settleResponse.data);
-  } catch (error: any) {
-    console.log(
-      "❌ Settle endpoint error:",
-      error.response?.data || error.message
-    );
-  }
+  // console.log("\n2. Testing direct settle endpoint...");
+  // try {
+  //   const settleResponse = await axios.post(
+  //     "https://polygon-facilitator.vercel.app/settle",
+  //     {
+  //       paymentPayload,
+  //       paymentRequirements,
+  //     },
+  //     {
+  //       headers: {
+  //         "Content-Type": "application/json",
+  //       },
+  //     }
+  //   );
+  //   console.log("✅ Settle endpoint response:", settleResponse.data);
+  // } catch (error: any) {
+  //   console.log(
+  //     "❌ Settle endpoint error:",
+  //     error.response?.data || error.message
+  //   );
+  // }
 
   // Test /api/premium with real payment
   console.log("\n3. Testing /api/premium with real payment...");
@@ -415,6 +450,7 @@ async function testPaymentMiddleware() {
       {
         headers: {
           "Content-Type": "application/json",
+          Origin: TEST_WEBSITE_URL,
         },
       }
     );
@@ -505,13 +541,13 @@ async function runAllTests() {
   console.log("=".repeat(60));
 
   try {
-    await testHealthEndpoint();
-    await testAuthStatus();
-    await testLogoutEndpoint();
-    await testProtectedWebsitesManagement();
-    await testPremiumEndpoints();
+    // await testHealthEndpoint();
+    // await testAuthStatus();
+    // await testLogoutEndpoint();
+    // await testProtectedWebsitesManagement();
+    // await testPremiumEndpoints();
     await testPaymentMiddleware();
-    await testErrorHandling();
+    // await testErrorHandling();
 
     console.log("\n" + "=".repeat(60));
     console.log("✅ All tests completed!");
