@@ -44,11 +44,7 @@ async function generatePaymentSignature() {
     value: AMOUNT,
     validAfter: "0", // Convert to string
     validBefore: (Math.floor(Date.now() / 1000) + 3600).toString(), // Convert to string
-    nonce: `0x${Array.from({ length: 32 }, () =>
-      Math.floor(Math.random() * 256)
-        .toString(16)
-        .padStart(2, "0")
-    ).join("")}`, // Random 32-byte nonce
+    nonce: `0x${Math.random().toString(16).substr(2, 64).padEnd(64, "0")}`, // Random 32-byte nonce
   };
 
   const signature = await client.signTypedData({
@@ -102,14 +98,7 @@ async function testPremiumEndpoint() {
     network: "polygon-amoy",
     payload: {
       signature,
-      authorization: {
-        from: message.from,
-        to: message.to,
-        value: message.value,
-        validAfter: message.validAfter,
-        validBefore: message.validBefore,
-        nonce: message.nonce,
-      },
+      authorization: message,
       transaction:
         "0x0000000000000000000000000000000000000000000000000000000000000000", // Placeholder transaction hash
     },
@@ -129,9 +118,8 @@ async function testPremiumEndpoint() {
 
   // Test direct settle endpoint
   console.log("\n3. Testing direct settle endpoint...");
-  let settleResponse;
   try {
-    settleResponse = await axios.post(
+    const settleResponse = await axios.post(
       "https://polygon-facilitator.vercel.app/settle",
       {
         paymentPayload,
@@ -144,67 +132,20 @@ async function testPremiumEndpoint() {
       }
     );
     console.log("✅ Settle endpoint response:", settleResponse.data);
-
-    // Update payment payload with actual transaction hash
-    paymentPayload.payload.transaction = settleResponse.data.transaction;
   } catch (error: any) {
     console.log(
       "❌ Settle endpoint error:",
       error.response?.data || error.message
     );
-    return; // Exit if settle fails
   }
 
   // Test /api/premium with payment
   console.log("\n4. Testing /api/premium with payment...");
-
-  // Generate a fresh payment signature for the premium endpoint test
-  console.log("Generating fresh payment signature for premium endpoint...");
-  const { signature: freshSignature, message: freshMessage } =
-    await generatePaymentSignature();
-
-  const freshPaymentPayload = {
-    x402Version: 1,
-    scheme: "exact",
-    network: "polygon-amoy",
-    payload: {
-      signature: freshSignature,
-      authorization: {
-        from: freshMessage.from,
-        to: freshMessage.to,
-        value: freshMessage.value,
-        validAfter: freshMessage.validAfter,
-        validBefore: freshMessage.validBefore,
-        nonce: freshMessage.nonce,
-      },
-      transaction:
-        "0x0000000000000000000000000000000000000000000000000000000000000000",
-    },
-  };
-
-  // First try GET request to see 402 response
-  console.log("4a. Testing GET request (should return 402)...");
-  try {
-    const getResponse = await axios.get("http://localhost:8000/api/premium");
-    console.log("❌ Unexpected success with GET:", getResponse.data);
-  } catch (error: any) {
-    if (error.response?.status === 402) {
-      console.log("✅ GET request correctly returned 402 Payment Required");
-    } else {
-      console.log(
-        "❌ GET request error:",
-        error.response?.data || error.message
-      );
-    }
-  }
-
-  // Now try POST request with payment payload
-  console.log("4b. Testing POST request with payment...");
   try {
     const responseWithPayment = await axios.post(
       "http://localhost:8000/api/premium",
       {
-        paymentPayload: freshPaymentPayload,
+        paymentPayload,
         paymentRequirements,
       },
       {

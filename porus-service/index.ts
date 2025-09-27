@@ -4,6 +4,8 @@ import cors from "cors";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
 import axios from "axios";
+import fs from "fs";
+import path from "path";
 
 const app = express();
 const PORT = 8000;
@@ -21,19 +23,54 @@ app.use(express.json());
 // Parse cookies
 app.use(cookieParser());
 
-// Your wallet address to receive payments
-const WALLET_ADDRESS = "0x376b7271dD22D14D82Ef594324ea14e7670ed5b2";
+// Your default wallet address to receive payments
+const DEFAULT_WALLET_ADDRESS = "0x376b7271dD22D14D82Ef594324ea14e7670ed5b2";
 
-// Configure protected route with price
-const protectedRoutes = {
-  "/api/premium": {
-    price: "$0.00010",
-    network: "polygon-amoy",
-    config: {
-      description: "Premium API access",
-    },
-  },
-};
+// Path to the protected websites JSON file
+const PROTECTED_WEBSITES_FILE = path.join(__dirname, "protected-websites.json");
+
+// Interface for protected website configuration
+interface ProtectedWebsite {
+  walletAddress: string;
+  price: string;
+  network: string;
+  config: {
+    description: string;
+  };
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Load protected websites from JSON file
+function loadProtectedWebsites(): Record<string, ProtectedWebsite> {
+  try {
+    if (fs.existsSync(PROTECTED_WEBSITES_FILE)) {
+      const data = fs.readFileSync(PROTECTED_WEBSITES_FILE, "utf8");
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error("Error loading protected websites:", error);
+  }
+  return {};
+}
+
+// Save protected websites to JSON file
+function saveProtectedWebsites(
+  websites: Record<string, ProtectedWebsite>
+): void {
+  try {
+    fs.writeFileSync(
+      PROTECTED_WEBSITES_FILE,
+      JSON.stringify(websites, null, 2)
+    );
+  } catch (error) {
+    console.error("Error saving protected websites:", error);
+  }
+}
+
+// Get current protected websites
+let protectedWebsites = loadProtectedWebsites();
 
 // JWT Authentication Middleware (non-blocking version)
 const checkAuthToken = (
@@ -77,18 +114,34 @@ const authOrPaymentMiddleware = async (
   res: express.Response,
   next: express.NextFunction
 ) => {
-  // Check if this is a protected route
-  const route = req.path;
-  const protectedRoute = protectedRoutes[route as keyof typeof protectedRoutes];
+  // Get the origin/referer to determine which website is making the request
+  const origin = req.headers.origin || req.headers.referer;
 
-  if (!protectedRoute) {
-    return next(); // Not a protected route, continue
+  if (!origin) {
+    return next(); // No origin/referer, continue without protection
+  }
+
+  // Extract the base URL (protocol + domain) from origin
+  let websiteUrl: string;
+  try {
+    const url = new URL(origin);
+    websiteUrl = `${url.protocol}//${url.host}`;
+  } catch (error) {
+    return next(); // Invalid URL, continue without protection
+  }
+
+  // Check if this website is protected
+  const protectedWebsite =
+    protectedWebsites[websiteUrl as keyof typeof protectedWebsites];
+
+  if (!protectedWebsite || !protectedWebsite.enabled) {
+    return next(); // Not a protected website or disabled, continue
   }
 
   // If user is already authenticated, serve content directly
   if (req.isAuthenticated) {
     console.log(
-      `🔓 User already authenticated for ${route}, serving content directly`
+      `🔓 User already authenticated for ${websiteUrl}, serving content directly`
     );
     return next();
   }
@@ -103,12 +156,12 @@ const authOrPaymentMiddleware = async (
       paymentRequirements: {
         scheme: "exact",
         network: "polygon-amoy",
-        payTo: WALLET_ADDRESS,
-        maxAmountRequired: "500000", // 0.5 USDC (6 decimals)
+        payTo: protectedWebsite.walletAddress,
+        maxAmountRequired: "100", // 0.0001 USDC (6 decimals)
         maxTimeoutSeconds: 3600,
         asset: "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582", // USDC on Polygon Amoy
-        resource: `https://localhost:${PORT}${route}`,
-        description: protectedRoute.config.description,
+        resource: `https://localhost:${PORT}${req.path}`,
+        description: protectedWebsite.config.description,
         mimeType: "application/json",
       },
     });
@@ -134,10 +187,10 @@ const authOrPaymentMiddleware = async (
       try {
         const token = jwt.sign(
           {
-            route: route,
+            website: websiteUrl,
             paid: true,
             timestamp: new Date().toISOString(),
-            price: protectedRoute.price,
+            price: protectedWebsite.price,
             settlementId:
               settleResponse.data.transactionHash || settleResponse.data.id,
           },
@@ -154,7 +207,7 @@ const authOrPaymentMiddleware = async (
         });
 
         console.log(
-          `🎟️ JWT token generated and set for ${route} after successful settlement`
+          `🎟️ JWT token generated and set for ${websiteUrl} after successful settlement`
         );
         req.isAuthenticated = true;
 
@@ -182,8 +235,146 @@ const authOrPaymentMiddleware = async (
 };
 
 // Apply middlewares in order
-app.use(checkAuthToken); // First check for existing auth
-app.use(authOrPaymentMiddleware); // Then check auth or require payment for protected routes
+app.use(checkAuthToken);
+app.use(authOrPaymentMiddleware);
+
+// Protected Websites Management Routes
+// GET /api/protected-websites - Get all protected websites
+app.get("/api/protected-websites", (req, res) => {
+  res.json({
+    success: true,
+    data: protectedWebsites,
+    count: Object.keys(protectedWebsites).length,
+  });
+});
+
+// GET /api/protected-websites/:website - Get specific protected website
+app.get("/api/protected-websites/*", (req, res) => {
+  const website = req.params[0];
+  const websiteData = protectedWebsites[website];
+
+  if (!websiteData) {
+    return res.status(404).json({
+      success: false,
+      error: "Protected website not found",
+    });
+  }
+
+  res.json({
+    success: true,
+    data: websiteData,
+  });
+});
+
+// POST /api/protected-websites - Add new protected website
+app.post("/api/protected-websites", (req, res) => {
+  const { website, walletAddress, price, network, description } = req.body;
+
+  // Validation
+  if (!website || !walletAddress || !price || !network || !description) {
+    return res.status(400).json({
+      success: false,
+      error:
+        "Missing required fields: website, walletAddress, price, network, description",
+    });
+  }
+
+  // Validate website URL format
+  try {
+    new URL(website);
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid website URL format",
+    });
+  }
+
+  // Check if website already exists
+  if (protectedWebsites[website]) {
+    return res.status(409).json({
+      success: false,
+      error: "Website already exists",
+    });
+  }
+
+  // Add new protected website
+  const now = new Date().toISOString();
+  protectedWebsites[website] = {
+    walletAddress,
+    price,
+    network,
+    config: {
+      description,
+    },
+    enabled: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // Save to file
+  saveProtectedWebsites(protectedWebsites);
+
+  res.status(201).json({
+    success: true,
+    message: "Protected website added successfully",
+    data: protectedWebsites[website],
+  });
+});
+
+// PUT /api/protected-websites/:website - Update protected website
+app.put("/api/protected-websites/*", (req, res) => {
+  const website = req.params[0];
+  const { walletAddress, price, network, description, enabled } = req.body;
+
+  if (!protectedWebsites[website]) {
+    return res.status(404).json({
+      success: false,
+      error: "Protected website not found",
+    });
+  }
+
+  // Update fields if provided
+  if (walletAddress !== undefined)
+    protectedWebsites[website].walletAddress = walletAddress;
+  if (price !== undefined) protectedWebsites[website].price = price;
+  if (network !== undefined) protectedWebsites[website].network = network;
+  if (description !== undefined)
+    protectedWebsites[website].config.description = description;
+  if (enabled !== undefined) protectedWebsites[website].enabled = enabled;
+
+  protectedWebsites[website].updatedAt = new Date().toISOString();
+
+  // Save to file
+  saveProtectedWebsites(protectedWebsites);
+
+  res.json({
+    success: true,
+    message: "Protected website updated successfully",
+    data: protectedWebsites[website],
+  });
+});
+
+// DELETE /api/protected-websites/:website - Delete protected website
+app.delete("/api/protected-websites/*", (req, res) => {
+  const website = req.params[0];
+
+  if (!protectedWebsites[website]) {
+    return res.status(404).json({
+      success: false,
+      error: "Protected website not found",
+    });
+  }
+
+  delete protectedWebsites[website];
+
+  // Save to file
+  saveProtectedWebsites(protectedWebsites);
+
+  res.json({
+    success: true,
+    message: "Protected website deleted successfully",
+  });
+});
 
 // Health endpoint - no payment required
 app.get("/health", (req, res) => {
@@ -254,12 +445,24 @@ app.post("/api/logout", (req, res) => {
 // Start the server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`💰 Payments to: ${WALLET_ADDRESS}`);
+  console.log(`💰 Default wallet: ${DEFAULT_WALLET_ADDRESS}`);
   console.log(`✅ Health: http://localhost:${PORT}/health`);
   console.log(`💎 Premium (Auth or Pay): http://localhost:${PORT}/api/premium`);
+  console.log(
+    `🌐 Protected websites: ${Object.keys(protectedWebsites).join(", ")}`
+  );
   console.log(`🔐 JWT Only: http://localhost:${PORT}/api/premium/jwt`);
   console.log(`🔍 Auth Status: http://localhost:${PORT}/api/auth/status`);
   console.log(`🚪 Logout: POST http://localhost:${PORT}/api/logout`);
+  console.log(`\n📋 Protected Websites Management:`);
+  console.log(`   GET    http://localhost:${PORT}/api/protected-websites`);
+  console.log(`   POST   http://localhost:${PORT}/api/protected-websites`);
+  console.log(
+    `   PUT    http://localhost:${PORT}/api/protected-websites/{website}`
+  );
+  console.log(
+    `   DELETE http://localhost:${PORT}/api/protected-websites/{website}`
+  );
 });
 
 // Extend Express Request interface
