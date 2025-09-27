@@ -4,8 +4,17 @@ import cors from "cors";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
 import axios from "axios";
-import fs from "fs";
-import path from "path";
+import { getDb, COLLECTION_NAME } from "./firebase";
+import {
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  setDoc,
+  deleteDoc,
+  query,
+  where,
+} from "firebase/firestore";
 
 const app = express();
 const PORT = 8000;
@@ -26,13 +35,6 @@ app.use(cookieParser());
 // Your default wallet address to receive payments
 const DEFAULT_WALLET_ADDRESS = "0x376b7271dD22D14D82Ef594324ea14e7670ed5b2";
 
-// Path to the protected websites JSON file
-const PROTECTED_WEBSITES_FILE = path.join(
-  process.cwd(),
-  "porus-service",
-  "protected-websites.json"
-);
-
 // Interface for protected website configuration
 interface ProtectedWebsite {
   walletAddress: string;
@@ -46,35 +48,75 @@ interface ProtectedWebsite {
   updatedAt: string;
 }
 
-// Load protected websites from JSON file
-function loadProtectedWebsites(): Record<string, ProtectedWebsite> {
+// Load protected websites from Firebase
+async function loadProtectedWebsites(): Promise<
+  Record<string, ProtectedWebsite>
+> {
   try {
-    if (fs.existsSync(PROTECTED_WEBSITES_FILE)) {
-      const data = fs.readFileSync(PROTECTED_WEBSITES_FILE, "utf8");
-      return JSON.parse(data);
+    const db = getDb();
+    const websitesCollection = collection(db, COLLECTION_NAME);
+    const querySnapshot = await getDocs(websitesCollection);
+
+    const websites: Record<string, ProtectedWebsite> = {};
+    querySnapshot.forEach((doc) => {
+      websites[doc.id] = doc.data() as ProtectedWebsite;
+    });
+
+    return websites;
+  } catch (error) {
+    console.error("Error loading protected websites from Firebase:", error);
+    return {};
+  }
+}
+
+// Save protected website to Firebase
+async function saveProtectedWebsite(
+  websiteUrl: string,
+  websiteData: ProtectedWebsite
+): Promise<void> {
+  try {
+    const db = getDb();
+    const websiteDoc = doc(db, COLLECTION_NAME, websiteUrl);
+    await setDoc(websiteDoc, websiteData);
+  } catch (error) {
+    console.error("Error saving protected website to Firebase:", error);
+    throw error;
+  }
+}
+
+// Delete protected website from Firebase
+async function deleteProtectedWebsite(websiteUrl: string): Promise<void> {
+  try {
+    const db = getDb();
+    const websiteDoc = doc(db, COLLECTION_NAME, websiteUrl);
+    await deleteDoc(websiteDoc);
+  } catch (error) {
+    console.error("Error deleting protected website from Firebase:", error);
+    throw error;
+  }
+}
+
+// Get specific protected website from Firebase
+async function getProtectedWebsite(
+  websiteUrl: string
+): Promise<ProtectedWebsite | null> {
+  try {
+    const db = getDb();
+    const websiteDoc = doc(db, COLLECTION_NAME, websiteUrl);
+    const docSnap = await getDoc(websiteDoc);
+
+    if (docSnap.exists()) {
+      return docSnap.data() as ProtectedWebsite;
     }
+    return null;
   } catch (error) {
-    console.error("Error loading protected websites:", error);
-  }
-  return {};
-}
-
-// Save protected websites to JSON file
-function saveProtectedWebsites(
-  websites: Record<string, ProtectedWebsite>
-): void {
-  try {
-    fs.writeFileSync(
-      PROTECTED_WEBSITES_FILE,
-      JSON.stringify(websites, null, 2)
-    );
-  } catch (error) {
-    console.error("Error saving protected websites:", error);
+    console.error("Error getting protected website from Firebase:", error);
+    return null;
   }
 }
 
-// Get current protected websites
-let protectedWebsites = loadProtectedWebsites();
+// Get current protected websites (cached for performance)
+let protectedWebsites: Record<string, ProtectedWebsite> = {};
 
 // JWT Authentication Middleware (non-blocking version)
 const checkAuthToken = (
@@ -135,8 +177,7 @@ const authOrPaymentMiddleware = async (
   }
 
   // Check if this website is protected
-  const protectedWebsite =
-    protectedWebsites[websiteUrl as keyof typeof protectedWebsites];
+  const protectedWebsite = await getProtectedWebsite(websiteUrl);
 
   if (!protectedWebsite || !protectedWebsite.enabled) {
     return next(); // Not a protected website or disabled, continue
@@ -244,140 +285,183 @@ app.use(authOrPaymentMiddleware);
 
 // Protected Websites Management Routes
 // GET /api/protected-websites - Get all protected websites
-app.get("/api/protected-websites", (req, res) => {
-  res.json({
-    success: true,
-    data: protectedWebsites,
-    count: Object.keys(protectedWebsites).length,
-  });
+app.get("/api/protected-websites", async (req, res) => {
+  try {
+    const websites = await loadProtectedWebsites();
+    res.json({
+      success: true,
+      data: websites,
+      count: Object.keys(websites).length,
+    });
+  } catch (error) {
+    console.error("Error fetching protected websites:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch protected websites",
+    });
+  }
 });
 
 // GET /api/protected-websites/:website - Get specific protected website
-app.get("/api/protected-websites/*", (req, res) => {
-  const website = req.params[0];
-  const websiteData = protectedWebsites[website];
+app.get("/api/protected-websites/*", async (req, res) => {
+  try {
+    const website = req.params[0];
+    const websiteData = await getProtectedWebsite(website);
 
-  if (!websiteData) {
-    return res.status(404).json({
+    if (!websiteData) {
+      return res.status(404).json({
+        success: false,
+        error: "Protected website not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: websiteData,
+    });
+  } catch (error) {
+    console.error("Error fetching protected website:", error);
+    res.status(500).json({
       success: false,
-      error: "Protected website not found",
+      error: "Failed to fetch protected website",
     });
   }
-
-  res.json({
-    success: true,
-    data: websiteData,
-  });
 });
 
 // POST /api/protected-websites - Add new protected website
-app.post("/api/protected-websites", (req, res) => {
-  const { website, walletAddress, price, network, description } = req.body;
-
-  // Validation
-  if (!website || !walletAddress || !price || !network || !description) {
-    return res.status(400).json({
-      success: false,
-      error:
-        "Missing required fields: website, walletAddress, price, network, description",
-    });
-  }
-
-  // Validate website URL format
+app.post("/api/protected-websites", async (req, res) => {
   try {
-    new URL(website);
+    const { website, walletAddress, price, network, description } = req.body;
+
+    // Validation
+    if (!website || !walletAddress || !price || !network || !description) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Missing required fields: website, walletAddress, price, network, description",
+      });
+    }
+
+    // Validate website URL format
+    try {
+      new URL(website);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid website URL format",
+      });
+    }
+
+    // Check if website already exists
+    const existingWebsite = await getProtectedWebsite(website);
+    if (existingWebsite) {
+      return res.status(409).json({
+        success: false,
+        error: "Website already exists",
+      });
+    }
+
+    // Add new protected website
+    const now = new Date().toISOString();
+    const websiteData: ProtectedWebsite = {
+      walletAddress,
+      price,
+      network,
+      config: {
+        description,
+      },
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // Save to Firebase
+    await saveProtectedWebsite(website, websiteData);
+
+    res.status(201).json({
+      success: true,
+      message: "Protected website added successfully",
+      data: websiteData,
+    });
   } catch (error) {
-    return res.status(400).json({
+    console.error("Error adding protected website:", error);
+    res.status(500).json({
       success: false,
-      error: "Invalid website URL format",
+      error: "Failed to add protected website",
     });
   }
-
-  // Check if website already exists
-  if (protectedWebsites[website]) {
-    return res.status(409).json({
-      success: false,
-      error: "Website already exists",
-    });
-  }
-
-  // Add new protected website
-  const now = new Date().toISOString();
-  protectedWebsites[website] = {
-    walletAddress,
-    price,
-    network,
-    config: {
-      description,
-    },
-    enabled: true,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  // Save to file
-  saveProtectedWebsites(protectedWebsites);
-
-  res.status(201).json({
-    success: true,
-    message: "Protected website added successfully",
-    data: protectedWebsites[website],
-  });
 });
 
 // PUT /api/protected-websites/:website - Update protected website
-app.put("/api/protected-websites/*", (req, res) => {
-  const website = req.params[0];
-  const { walletAddress, price, network, description, enabled } = req.body;
+app.put("/api/protected-websites/*", async (req, res) => {
+  try {
+    const website = req.params[0];
+    const { walletAddress, price, network, description, enabled } = req.body;
 
-  if (!protectedWebsites[website]) {
-    return res.status(404).json({
+    const existingWebsite = await getProtectedWebsite(website);
+    if (!existingWebsite) {
+      return res.status(404).json({
+        success: false,
+        error: "Protected website not found",
+      });
+    }
+
+    // Update fields if provided
+    const updatedWebsite = { ...existingWebsite };
+    if (walletAddress !== undefined)
+      updatedWebsite.walletAddress = walletAddress;
+    if (price !== undefined) updatedWebsite.price = price;
+    if (network !== undefined) updatedWebsite.network = network;
+    if (description !== undefined)
+      updatedWebsite.config.description = description;
+    if (enabled !== undefined) updatedWebsite.enabled = enabled;
+
+    updatedWebsite.updatedAt = new Date().toISOString();
+
+    // Save to Firebase
+    await saveProtectedWebsite(website, updatedWebsite);
+
+    res.json({
+      success: true,
+      message: "Protected website updated successfully",
+      data: updatedWebsite,
+    });
+  } catch (error) {
+    console.error("Error updating protected website:", error);
+    res.status(500).json({
       success: false,
-      error: "Protected website not found",
+      error: "Failed to update protected website",
     });
   }
-
-  // Update fields if provided
-  if (walletAddress !== undefined)
-    protectedWebsites[website].walletAddress = walletAddress;
-  if (price !== undefined) protectedWebsites[website].price = price;
-  if (network !== undefined) protectedWebsites[website].network = network;
-  if (description !== undefined)
-    protectedWebsites[website].config.description = description;
-  if (enabled !== undefined) protectedWebsites[website].enabled = enabled;
-
-  protectedWebsites[website].updatedAt = new Date().toISOString();
-
-  // Save to file
-  saveProtectedWebsites(protectedWebsites);
-
-  res.json({
-    success: true,
-    message: "Protected website updated successfully",
-    data: protectedWebsites[website],
-  });
 });
 
 // DELETE /api/protected-websites/:website - Delete protected website
-app.delete("/api/protected-websites/*", (req, res) => {
-  const website = req.params[0];
+app.delete("/api/protected-websites/*", async (req, res) => {
+  try {
+    const website = req.params[0];
 
-  if (!protectedWebsites[website]) {
-    return res.status(404).json({
+    const existingWebsite = await getProtectedWebsite(website);
+    if (!existingWebsite) {
+      return res.status(404).json({
+        success: false,
+        error: "Protected website not found",
+      });
+    }
+
+    // Delete from Firebase
+    await deleteProtectedWebsite(website);
+
+    res.json({
+      success: true,
+      message: "Protected website deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting protected website:", error);
+    res.status(500).json({
       success: false,
-      error: "Protected website not found",
+      error: "Failed to delete protected website",
     });
   }
-
-  delete protectedWebsites[website];
-
-  // Save to file
-  saveProtectedWebsites(protectedWebsites);
-
-  res.json({
-    success: true,
-    message: "Protected website deleted successfully",
-  });
 });
 
 // Health endpoint - no payment required
@@ -455,9 +539,7 @@ if (process.env.NODE_ENV !== "production") {
     console.log(
       `💎 Premium (Auth or Pay): http://localhost:${PORT}/api/premium`
     );
-    console.log(
-      `🌐 Protected websites: ${Object.keys(protectedWebsites).join(", ")}`
-    );
+    console.log(`🌐 Protected websites: Loaded from Firebase`);
     console.log(`🔐 JWT Only: http://localhost:${PORT}/api/premium/jwt`);
     console.log(`🔍 Auth Status: http://localhost:${PORT}/api/auth/status`);
     console.log(`🚪 Logout: POST http://localhost:${PORT}/api/logout`);
