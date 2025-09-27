@@ -1,0 +1,31 @@
+declare module "x402-express" {
+  import { RequestHandler } from "express";
+
+  export interface ProtectedRouteConfigItem {
+    price: string;
+    network: string;
+    config?: Record<string, unknown>;
+  }
+
+  export type ProtectedRoutes = Record<string, ProtectedRouteConfigItem>;
+
+  export function paymentMiddleware(
+    walletAddress: string,
+    protectedRoutes: ProtectedRoutes,
+    facilitatorConfig: unknown
+  ): RequestHandler;
+}
+
+declare module "@coinbase/x402" {
+  export interface FacilitatorConfig {
+    apiKey: string;
+    apiSecret: string;
+    [key: string]: unknown;
+  }
+
+  export function createFacilitatorConfig(
+    apiKey: string,
+    apiSecret: string
+  ): FacilitatorConfig;
+}
+
