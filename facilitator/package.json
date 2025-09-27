@@ -22,7 +22,6 @@
   },
   "homepage": "https://github.com/PugazharasanC/NodeExpressVercel#readme",
   "dependencies": {
-    "@inco/js": "^0.3.2-alpha.1",
     "@types/cors": "^2.8.19",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
