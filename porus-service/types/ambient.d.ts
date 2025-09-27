@@ -35,6 +35,19 @@ declare global {
     interface Request {
       user?: any;
       isAuthenticated?: boolean;
+      body?: any;
+      path?: string;
+    }
+
+    interface Response {
+      status?: (code: number) => Response;
+      json?: (obj: any) => Response;
+      cookie?: (name: string, value: string, options?: any) => Response;
+      clearCookie?: (name: string) => Response;
+    }
+
+    interface NextFunction {
+      (err?: any): void;
     }
   }
 }

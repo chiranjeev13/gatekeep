@@ -124,8 +124,8 @@ const checkAuthToken = (
   if (token) {
     jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
       if (!err) {
-        req.user = user;
-        req.isAuthenticated = true;
+        (req as any).user = user;
+        (req as any).isAuthenticated = true;
       }
     });
   }
@@ -139,8 +139,10 @@ const requireAuth = (
   res: express.Response,
   next: express.NextFunction
 ) => {
-  if (!req.isAuthenticated) {
-    return res.status(401).json({ error: "Valid access token required" });
+  if (!(req as any).isAuthenticated) {
+    return (res as any)
+      .status(401)
+      .json({ error: "Valid access token required" });
   }
   next();
 };
@@ -171,23 +173,23 @@ const authOrPaymentMiddleware = async (
   const protectedWebsite = await getProtectedWebsite(websiteUrl);
 
   if (!protectedWebsite || !protectedWebsite.enabled) {
-    return next(); // Not a protected website or disabled, continue
+    return (next as any)(); // Not a protected website or disabled, continue
   }
 
   // If user is already authenticated, serve content directly
-  if (req.isAuthenticated) {
+  if ((req as any).isAuthenticated) {
     console.log(
       `🔓 User already authenticated for ${websiteUrl}, serving content directly`
     );
-    return next();
+    return (next as any)();
   }
 
   // Check if payment payload is present in request
-  const { paymentPayload, paymentRequirements } = req.body || {};
+  const { paymentPayload, paymentRequirements } = (req as any).body || {};
 
   if (!paymentPayload || !paymentRequirements) {
     // Return 402 Payment Required with payment requirements
-    return res.status(402).json({
+    return (res as any).status(402).json({
       error: "Payment Required",
       paymentRequirements: {
         scheme: "exact",
@@ -196,7 +198,7 @@ const authOrPaymentMiddleware = async (
         maxAmountRequired: "100", // 0.0001 USDC (6 decimals)
         maxTimeoutSeconds: 3600,
         asset: "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582", // USDC on Polygon Amoy
-        resource: `https://localhost:${PORT}${req.path}`,
+        resource: `https://localhost:${PORT}${(req as any).path}`,
         description: protectedWebsite.config.description,
         mimeType: "application/json",
       },
@@ -235,7 +237,7 @@ const authOrPaymentMiddleware = async (
         );
 
         // Set JWT token as HTTP-only cookie with 24-hour expiration
-        res.cookie("access_token", token, {
+        (res as any).cookie("access_token", token, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
           sameSite: "lax",
@@ -245,16 +247,20 @@ const authOrPaymentMiddleware = async (
         console.log(
           `🎟️ JWT token generated and set for ${websiteUrl} after successful settlement`
         );
-        req.isAuthenticated = true;
+        (req as any).isAuthenticated = true;
 
         // Continue to the protected route
-        return next();
+        return (next as any)();
       } catch (error) {
         console.error("Error generating JWT token:", error);
-        return res.status(500).json({ error: "Internal server error" });
+        return (res as any)
+          .status(500)
+          .json({ error: "Internal server error" });
       }
     } else {
-      return res.status(402).json({ error: "Payment settlement failed" });
+      return (res as any)
+        .status(402)
+        .json({ error: "Payment settlement failed" });
     }
   } catch (error) {
     console.error("Settle endpoint error:", error);
@@ -263,10 +269,10 @@ const authOrPaymentMiddleware = async (
       const statusCode = error.response?.status || 500;
       const errorMessage =
         error.response?.data?.error || "Payment settlement failed";
-      return res.status(statusCode).json({ error: errorMessage });
+      return (res as any).status(statusCode).json({ error: errorMessage });
     }
 
-    return res.status(500).json({ error: "Internal server error" });
+    return (res as any).status(500).json({ error: "Internal server error" });
   }
 };
 
@@ -279,14 +285,14 @@ app.use(authOrPaymentMiddleware);
 app.get("/api/protected-websites", async (req, res) => {
   try {
     const websites = await loadProtectedWebsites();
-    res.json({
+    (res as any).json({
       success: true,
       data: websites,
       count: Object.keys(websites).length,
     });
   } catch (error) {
     console.error("Error fetching protected websites:", error);
-    res.status(500).json({
+    (res as any).status(500).json({
       success: false,
       error: "Failed to fetch protected websites",
     });
@@ -300,19 +306,19 @@ app.get("/api/protected-websites/*", async (req, res) => {
     const websiteData = await getProtectedWebsite(website);
 
     if (!websiteData) {
-      return res.status(404).json({
+      return (res as any).status(404).json({
         success: false,
         error: "Protected website not found",
       });
     }
 
-    res.json({
+    (res as any).json({
       success: true,
       data: websiteData,
     });
   } catch (error) {
     console.error("Error fetching protected website:", error);
-    res.status(500).json({
+    (res as any).status(500).json({
       success: false,
       error: "Failed to fetch protected website",
     });
@@ -326,7 +332,7 @@ app.post("/api/protected-websites", async (req, res) => {
 
     // Validation
     if (!website || !walletAddress || !price || !network || !description) {
-      return res.status(400).json({
+      return (res as any).status(400).json({
         success: false,
         error:
           "Missing required fields: website, walletAddress, price, network, description",
@@ -337,7 +343,7 @@ app.post("/api/protected-websites", async (req, res) => {
     try {
       new URL(website);
     } catch (error) {
-      return res.status(400).json({
+      return (res as any).status(400).json({
         success: false,
         error: "Invalid website URL format",
       });
@@ -346,7 +352,7 @@ app.post("/api/protected-websites", async (req, res) => {
     // Check if website already exists
     const existingWebsite = await getProtectedWebsite(website);
     if (existingWebsite) {
-      return res.status(409).json({
+      return (res as any).status(409).json({
         success: false,
         error: "Website already exists",
       });
@@ -369,14 +375,14 @@ app.post("/api/protected-websites", async (req, res) => {
     // Save to Firebase
     await saveProtectedWebsite(website, websiteData);
 
-    res.status(201).json({
+    (res as any).status(201).json({
       success: true,
       message: "Protected website added successfully",
       data: websiteData,
     });
   } catch (error) {
     console.error("Error adding protected website:", error);
-    res.status(500).json({
+    (res as any).status(500).json({
       success: false,
       error: "Failed to add protected website",
     });
@@ -391,7 +397,7 @@ app.put("/api/protected-websites/*", async (req, res) => {
 
     const existingWebsite = await getProtectedWebsite(website);
     if (!existingWebsite) {
-      return res.status(404).json({
+      return (res as any).status(404).json({
         success: false,
         error: "Protected website not found",
       });
@@ -412,14 +418,14 @@ app.put("/api/protected-websites/*", async (req, res) => {
     // Save to Firebase
     await saveProtectedWebsite(website, updatedWebsite);
 
-    res.json({
+    (res as any).json({
       success: true,
       message: "Protected website updated successfully",
       data: updatedWebsite,
     });
   } catch (error) {
     console.error("Error updating protected website:", error);
-    res.status(500).json({
+    (res as any).status(500).json({
       success: false,
       error: "Failed to update protected website",
     });
@@ -433,7 +439,7 @@ app.delete("/api/protected-websites/*", async (req, res) => {
 
     const existingWebsite = await getProtectedWebsite(website);
     if (!existingWebsite) {
-      return res.status(404).json({
+      return (res as any).status(404).json({
         success: false,
         error: "Protected website not found",
       });
@@ -442,13 +448,13 @@ app.delete("/api/protected-websites/*", async (req, res) => {
     // Delete from Firebase
     await deleteProtectedWebsite(website);
 
-    res.json({
+    (res as any).json({
       success: true,
       message: "Protected website deleted successfully",
     });
   } catch (error) {
     console.error("Error deleting protected website:", error);
-    res.status(500).json({
+    (res as any).status(500).json({
       success: false,
       error: "Failed to delete protected website",
     });
@@ -457,18 +463,18 @@ app.delete("/api/protected-websites/*", async (req, res) => {
 
 // Health endpoint - no payment required
 app.get("/health", (req, res) => {
-  res.json({
+  (res as any).json({
     status: "healthy",
     timestamp: new Date().toISOString(),
-    authenticated: !!req.isAuthenticated,
+    authenticated: !!(req as any).isAuthenticated,
   });
 });
 
 // Premium endpoint - requires authentication (via existing JWT or payment)
 app.get("/api/premium", (req, res) => {
-  res.json({
+  (res as any).json({
     message: "Premium content accessed!",
-    access_method: req.isAuthenticated
+    access_method: (req as any).isAuthenticated
       ? "JWT Authentication"
       : "Direct Payment",
     premium_data: {
@@ -476,13 +482,13 @@ app.get("/api/premium", (req, res) => {
       metrics: [87.3, 92.1, 78.5, 95.2],
       generated_at: new Date().toISOString(),
     },
-    user: req.user || null,
+    user: (req as any).user || null,
   });
 });
 
 // Premium endpoint POST - handles payment and returns content
 app.post("/api/premium", (req, res) => {
-  res.json({
+  (res as any).json({
     message: "Premium content accessed via payment!",
     access_method: "Direct Payment",
     premium_data: {
@@ -490,35 +496,35 @@ app.post("/api/premium", (req, res) => {
       metrics: [87.3, 92.1, 78.5, 95.2],
       generated_at: new Date().toISOString(),
     },
-    user: req.user || null,
+    user: (req as any).user || null,
   });
 });
 
 // JWT-only protected route - requires valid JWT token (no payment option)
 app.get("/api/premium/jwt", requireAuth, (req, res) => {
-  res.json({
+  (res as any).json({
     message: "Premium content accessed via JWT only!",
     premium_data: {
       insights: "Advanced analytics data",
       metrics: [87.3, 92.1, 78.5, 95.2],
       generated_at: new Date().toISOString(),
-      user: req.user,
+      user: (req as any).user,
     },
   });
 });
 
 // Check authentication status
 app.get("/api/auth/status", (req, res) => {
-  res.json({
-    authenticated: !!req.isAuthenticated,
-    user: req.user || null,
+  (res as any).json({
+    authenticated: !!(req as any).isAuthenticated,
+    user: (req as any).user || null,
   });
 });
 
 // Logout endpoint - clears the JWT cookie
 app.post("/api/logout", (req, res) => {
-  res.clearCookie("access_token");
-  res.json({ message: "Logged out successfully" });
+  (res as any).clearCookie("access_token");
+  (res as any).json({ message: "Logged out successfully" });
 });
 
 // Start the server only in development

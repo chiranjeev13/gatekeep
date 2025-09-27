@@ -16,11 +16,17 @@
     "declarationMap": false,
     "sourceMap": false,
     "noImplicitAny": false,
-    "types": ["node", "express"]
+    "noImplicitReturns": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
   "include": [
     "**/*.ts",
     "types/**/*.d.ts"
+  ],
+  "typeRoots": [
+    "./node_modules/@types",
+    "./types"
   ],
   "exclude": [
     "node_modules",
