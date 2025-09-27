@@ -5,14 +5,6 @@ import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
 import { paymentMiddleware } from "x402-express";
 
-import { createFacilitatorConfig } from "@coinbase/x402";
-
-const facilitator = createFacilitatorConfig(
-  "c3ed6b90-f361-4071-898f-594001704263",
-  "/Jl0k7Mz2zPMxPI6LKV7UT0uWbW/Yiwh+zixrvqDuk369oLE8ELRmNijyeDD+FklijEI4+OTb0vM+kxz33xaSA=="
-  // 'http://localhost:3002'
-); // Pass in directly from preferred secret management
-
 const app = express();
 const PORT = 8000;
 
@@ -33,7 +25,7 @@ const WALLET_ADDRESS = "0x376b7271dD22D14D82Ef594324ea14e7670ed5b2";
 const protectedRoutes = {
   "/api/premium": {
     price: "$0.00010",
-    network: "base-sepolia",
+    network: "polygon-amoy",
     config: {
       description: "Premium API access",
     },
@@ -94,15 +86,14 @@ const authOrPaymentMiddleware = (
   if (req.isAuthenticated) {
     console.log(`🔓 User already authenticated for ${route}, serving content directly`);
     return next();
-  }
-
-  console.log(`💳 No valid auth found for ${route}, requiring payment`);
-  
-  // User not authenticated, apply payment middleware
-  return paymentMiddleware(WALLET_ADDRESS, protectedRoutes, facilitator)(req, res, (err) => {
+  }  // User not authenticated, apply payment middleware
+  return paymentMiddleware(WALLET_ADDRESS, protectedRoutes, {uri: 'https://polygon-facilitator-iota.vercel.app'})(req, res, (err) => {
     if (err) return next(err);
-    
+
     // If payment was successful, generate JWT token
+    console.log('res.statusCode', res.statusCode);
+    console.log('fuck res.body', res.body);
+
     if (res.statusCode !== 402) { // 402 = Payment Required
       try {
         const token = jwt.sign(

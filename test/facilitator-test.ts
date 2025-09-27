@@ -15,11 +15,11 @@ const client = createWalletClient({
 // Create an Axios instance with payment handling
 const api = withPaymentInterceptor(
   axios.create({
-    baseURL: "http://localhost:3002",
+    baseURL: "http://localhost:8000",
   }),
-  client
+  client as any
 );
 
 // Make a request that may require payment
-const response = await api.get("/paid-endpoint");
+const response = await api.get("/api/premium");
 console.log(response.data);
