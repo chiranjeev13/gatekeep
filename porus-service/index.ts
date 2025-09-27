@@ -222,7 +222,8 @@ const authOrPaymentMiddleware = async (
     }
 
     // If no origin and no authentication, require payment
-    const { paymentPayload, paymentRequirements } = (req as any).body || {};
+    const paymentPayload = req.headers["x-payment-payload"];
+    const paymentRequirements = req.headers["x-payment-requirements"];
 
     if (!paymentPayload || !paymentRequirements) {
       console.log(
@@ -294,8 +295,9 @@ const authOrPaymentMiddleware = async (
     return (next as any)();
   }
 
-  // Check if payment payload is present in request
-  const { paymentPayload, paymentRequirements } = (req as any).body || {};
+  // Check if payment payload is present in request headers
+  const paymentPayload = req.headers["x-payment-payload"];
+  const paymentRequirements = req.headers["x-payment-requirements"];
 
   console.log(`💳 [authOrPaymentMiddleware] Checking for payment payload...`);
   console.log(
@@ -333,12 +335,33 @@ const authOrPaymentMiddleware = async (
       `🔄 [authOrPaymentMiddleware] Calling settle endpoint for payment verification...`
     );
 
+    // Parse header values as JSON
+    let parsedPaymentPayload, parsedPaymentRequirements;
+    try {
+      parsedPaymentPayload =
+        typeof paymentPayload === "string"
+          ? JSON.parse(paymentPayload)
+          : paymentPayload;
+      parsedPaymentRequirements =
+        typeof paymentRequirements === "string"
+          ? JSON.parse(paymentRequirements)
+          : paymentRequirements;
+    } catch (parseError) {
+      console.error(
+        `❌ [authOrPaymentMiddleware] Error parsing payment headers:`,
+        parseError
+      );
+      return (res as any)
+        .status(400)
+        .json({ error: "Invalid payment data format" });
+    }
+
     // Call the settle endpoint on the Polygon facilitator
     const settleResponse = await axios.post(
       "https://polygon-facilitator.vercel.app/settle",
       {
-        paymentPayload,
-        paymentRequirements,
+        paymentPayload: parsedPaymentPayload,
+        paymentRequirements: parsedPaymentRequirements,
       },
       {
         headers: {
@@ -613,7 +636,7 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Premium endpoint - requires authentication (via existing JWT or payment)
+// Premium endpoint GET - handles authentication and payment via headers
 app.get("/api/premium", authOrPaymentMiddleware, (req, res) => {
   // Check if user is authenticated (either via JWT or payment verification)
   if (!(req as any).isAuthenticated) {
@@ -624,36 +647,12 @@ app.get("/api/premium", authOrPaymentMiddleware, (req, res) => {
     });
   }
 
-  console.log("✅ Premium content accessed!");
+  console.log("✅ Premium content accessed via GET with headers!");
   (res as any).json({
-    message: "Premium content accessed!",
+    message: "Premium content accessed via GET with headers!",
     access_method: (req as any).isAuthenticated
       ? "JWT Authentication"
       : "Direct Payment",
-    premium_data: {
-      insights: "Advanced analytics data",
-      metrics: [87.3, 92.1, 78.5, 95.2],
-      generated_at: new Date().toISOString(),
-    },
-    user: (req as any).user || null,
-  });
-});
-
-// Premium endpoint POST - handles payment and returns content
-app.post("/api/premium", authOrPaymentMiddleware, (req, res) => {
-  // Check if user is authenticated (either via JWT or payment verification)
-  if (!(req as any).isAuthenticated) {
-    console.log("❌ [POST /api/premium] User not authenticated, returning 402");
-    return (res as any).status(402).json({
-      error: "Payment Required",
-      message: "Authentication or payment required to access premium content",
-    });
-  }
-
-  console.log("✅ Premium content accessed via payment!");
-  (res as any).json({
-    message: "Premium content accessed via payment!",
-    access_method: "Direct Payment",
     premium_data: {
       insights: "Advanced analytics data",
       metrics: [87.3, 92.1, 78.5, 95.2],

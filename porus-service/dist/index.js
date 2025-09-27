@@ -146,7 +146,8 @@ const authOrPaymentMiddleware = async (req, res, next) => {
             return next();
         }
         // If no origin and no authentication, require payment
-        const { paymentPayload, paymentRequirements } = req.body || {};
+        const paymentPayload = req.headers["x-payment-payload"];
+        const paymentRequirements = req.headers["x-payment-requirements"];
         if (!paymentPayload || !paymentRequirements) {
             console.log(`💸 [authOrPaymentMiddleware] No origin, no auth, no payment - returning 402 Payment Required`);
             return res.status(402).json({
@@ -191,8 +192,9 @@ const authOrPaymentMiddleware = async (req, res, next) => {
         console.log(`🔓 [authOrPaymentMiddleware] User already authenticated for ${websiteUrl}, serving content directly`);
         return next();
     }
-    // Check if payment payload is present in request
-    const { paymentPayload, paymentRequirements } = req.body || {};
+    // Check if payment payload is present in request headers
+    const paymentPayload = req.headers["x-payment-payload"];
+    const paymentRequirements = req.headers["x-payment-requirements"];
     console.log(`💳 [authOrPaymentMiddleware] Checking for payment payload...`);
     console.log(`💳 [authOrPaymentMiddleware] Payment payload present:`, !!paymentPayload);
     console.log(`💳 [authOrPaymentMiddleware] Payment requirements present:`, !!paymentRequirements);
@@ -216,10 +218,28 @@ const authOrPaymentMiddleware = async (req, res, next) => {
     }
     try {
         console.log(`🔄 [authOrPaymentMiddleware] Calling settle endpoint for payment verification...`);
+        // Parse header values as JSON
+        let parsedPaymentPayload, parsedPaymentRequirements;
+        try {
+            parsedPaymentPayload =
+                typeof paymentPayload === "string"
+                    ? JSON.parse(paymentPayload)
+                    : paymentPayload;
+            parsedPaymentRequirements =
+                typeof paymentRequirements === "string"
+                    ? JSON.parse(paymentRequirements)
+                    : paymentRequirements;
+        }
+        catch (parseError) {
+            console.error(`❌ [authOrPaymentMiddleware] Error parsing payment headers:`, parseError);
+            return res
+                .status(400)
+                .json({ error: "Invalid payment data format" });
+        }
         // Call the settle endpoint on the Polygon facilitator
         const settleResponse = await axios_1.default.post("https://polygon-facilitator.vercel.app/settle", {
-            paymentPayload,
-            paymentRequirements,
+            paymentPayload: parsedPaymentPayload,
+            paymentRequirements: parsedPaymentRequirements,
         }, {
             headers: {
                 "Content-Type": "application/json",
@@ -453,44 +473,22 @@ app.get("/health", (req, res) => {
         authenticated: !!req.isAuthenticated,
     });
 });
-// Premium endpoint - requires authentication (via existing JWT or payment)
+// Premium endpoint GET - handles authentication and payment via headers
 app.get("/api/premium", authOrPaymentMiddleware, (req, res) => {
     // Check if user is authenticated (either via JWT or payment verification)
     if (!req.isAuthenticated) {
         console.log("❌ [GET /api/premium] User not authenticated, returning 402");
         return res.status(402).json({
             error: "Payment Required",
-            message: "Authentication or payment required to access premium content"
+            message: "Authentication or payment required to access premium content",
         });
     }
-    console.log("✅ Premium content accessed!");
+    console.log("✅ Premium content accessed via GET with headers!");
     res.json({
-        message: "Premium content accessed!",
+        message: "Premium content accessed via GET with headers!",
         access_method: req.isAuthenticated
             ? "JWT Authentication"
             : "Direct Payment",
-        premium_data: {
-            insights: "Advanced analytics data",
-            metrics: [87.3, 92.1, 78.5, 95.2],
-            generated_at: new Date().toISOString(),
-        },
-        user: req.user || null,
-    });
-});
-// Premium endpoint POST - handles payment and returns content
-app.post("/api/premium", authOrPaymentMiddleware, (req, res) => {
-    // Check if user is authenticated (either via JWT or payment verification)
-    if (!req.isAuthenticated) {
-        console.log("❌ [POST /api/premium] User not authenticated, returning 402");
-        return res.status(402).json({
-            error: "Payment Required",
-            message: "Authentication or payment required to access premium content"
-        });
-    }
-    console.log("✅ Premium content accessed via payment!");
-    res.json({
-        message: "Premium content accessed via payment!",
-        access_method: "Direct Payment",
         premium_data: {
             insights: "Advanced analytics data",
             metrics: [87.3, 92.1, 78.5, 95.2],

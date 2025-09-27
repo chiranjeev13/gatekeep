@@ -67,8 +67,19 @@ function createPaymentData() {
       scheme: "exact",
       network: "polygon-amoy",
       payload: {
-        signature: "mock_signature",
-        authorization: "mock_authorization",
+        signature:
+          "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12",
+        authorization: {
+          from: account.address,
+          to: WALLET_ADDRESS,
+          value: AMOUNT,
+          validAfter: "0",
+          validBefore: (Math.floor(Date.now() / 1000) + 3600).toString(),
+          nonce: `0x${Math.random()
+            .toString(16)
+            .substr(2, 64)
+            .padEnd(64, "0")}`,
+        },
         transaction:
           "0x0000000000000000000000000000000000000000000000000000000000000000",
       },
@@ -314,7 +325,11 @@ async function testPremiumEndpoints() {
   // Test GET /api/premium without payment (should return 402)
   console.log("\n1. Testing GET /api/premium without payment...");
   try {
-    const response = await axios.get(`${BASE_URL}/api/premium`);
+    const response = await axios.get(`${BASE_URL}/api/premium`, {
+      headers: {
+        Origin: TEST_WEBSITE_URL,
+      },
+    });
     console.log("❌ Unexpected success without payment:", response.data);
   } catch (error: any) {
     if (error.response?.status === 402) {
@@ -331,39 +346,53 @@ async function testPremiumEndpoints() {
     }
   }
 
-  // Test POST /api/premium with payment
-  console.log("\n2. Testing POST /api/premium with payment...");
+  // Test GET /api/premium with payment via headers
+  console.log("\n2. Testing GET /api/premium with payment via headers...");
   const { paymentPayload, paymentRequirements } = createPaymentData();
 
   try {
-    const response = await axios.post(
-      `${BASE_URL}/api/premium`,
-      {
-        paymentPayload,
-        paymentRequirements,
+    const response = await axios.get(`${BASE_URL}/api/premium`, {
+      headers: {
+        "x-payment-payload": JSON.stringify(paymentPayload),
+        "x-payment-requirements": JSON.stringify(paymentRequirements),
+        Origin: TEST_WEBSITE_URL,
       },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    console.log("✅ POST premium with payment response:", response.data);
+    });
+    console.log("✅ GET premium with payment response:", response.data);
 
     if (response.data.message && response.data.access_method) {
-      console.log("✅ POST premium endpoint working");
+      console.log("✅ GET premium endpoint working");
     } else {
-      console.log("❌ POST premium endpoint malformed");
+      console.log("❌ GET premium endpoint malformed");
     }
   } catch (error: any) {
-    console.log(
-      "❌ POST premium error:",
-      error.response?.data || error.message
-    );
+    console.log("❌ GET premium error:", error.response?.data || error.message);
+  }
+
+  // Test GET /api/premium with invalid payment headers
+  console.log("\n3. Testing GET /api/premium with invalid payment headers...");
+  try {
+    const response = await axios.get(`${BASE_URL}/api/premium`, {
+      headers: {
+        "x-payment-payload": "invalid-json",
+        "x-payment-requirements": "invalid-json",
+        Origin: TEST_WEBSITE_URL,
+      },
+    });
+    console.log("❌ Unexpected success with invalid headers:", response.data);
+  } catch (error: any) {
+    if (error.response?.status === 400) {
+      console.log("✅ Correctly returned 400 for invalid payment data format");
+    } else {
+      console.log(
+        "❌ Unexpected error:",
+        error.response?.data || error.message
+      );
+    }
   }
 
   // Test GET /api/premium/jwt (should require authentication)
-  console.log("\n3. Testing GET /api/premium/jwt without auth...");
+  console.log("\n4. Testing GET /api/premium/jwt without auth...");
   try {
     const response = await axios.get(`${BASE_URL}/api/premium/jwt`);
     console.log("❌ Unexpected success without auth:", response.data);
@@ -438,26 +467,111 @@ async function testPaymentMiddleware() {
   //   );
   // }
 
-  // Test /api/premium with real payment
-  console.log("\n3. Testing /api/premium with real payment...");
+  // Test /api/premium with real payment via headers
+  console.log("\n3. Testing /api/premium with real payment via headers...");
+  let jwtToken: string | null = null;
+
   try {
-    const response = await axios.post(
-      `${BASE_URL}/api/premium`,
-      {
-        paymentPayload,
-        paymentRequirements,
+    const response = await axios.get(`${BASE_URL}/api/premium`, {
+      headers: {
+        "x-payment-payload": JSON.stringify(paymentPayload),
+        "x-payment-requirements": JSON.stringify(paymentRequirements),
+        Origin: TEST_WEBSITE_URL,
       },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Origin: TEST_WEBSITE_URL,
-        },
-      }
+    });
+
+    console.log("🍪 Response cookies:", response.headers["set-cookie"]);
+
+    // Extract JWT token from cookies
+    const accessTokenCookie = response.headers["set-cookie"]?.find((cookie) =>
+      cookie.startsWith("access_token=")
     );
+
+    if (accessTokenCookie) {
+      jwtToken = accessTokenCookie.split("access_token=")[1].split(";")[0];
+      console.log("🔑 Extracted JWT Token:", jwtToken);
+    }
+
     console.log(
       "✅ Premium endpoint with real payment response:",
       response.data
     );
+
+    // Now test using the JWT token for subsequent requests
+    if (jwtToken) {
+      console.log("\n4. Testing subsequent requests with JWT token...");
+
+      // Test 1: Use JWT token in Authorization header
+      console.log("\n4a. Testing with JWT in Authorization header...");
+      try {
+        const jwtResponse = await axios.get(`${BASE_URL}/api/premium`, {
+          headers: {
+            Authorization: `Bearer ${jwtToken}`,
+            Origin: TEST_WEBSITE_URL,
+          },
+        });
+        console.log("✅ JWT Authorization header response:", jwtResponse.data);
+      } catch (error: any) {
+        console.log(
+          "❌ JWT Authorization header error:",
+          error.response?.data || error.message
+        );
+      }
+
+      // Test 2: Use JWT token in cookie
+      console.log("\n4b. Testing with JWT in cookie...");
+      try {
+        const cookieResponse = await axios.get(`${BASE_URL}/api/premium`, {
+          headers: {
+            Origin: TEST_WEBSITE_URL,
+            Cookie: `access_token=${jwtToken}`,
+          },
+        });
+        console.log("✅ JWT Cookie response:", cookieResponse.data);
+      } catch (error: any) {
+        console.log(
+          "❌ JWT Cookie error:",
+          error.response?.data || error.message
+        );
+      }
+
+      // Test 3: Test JWT-only endpoint
+      console.log("\n4c. Testing JWT-only endpoint...");
+      try {
+        const jwtOnlyResponse = await axios.get(`${BASE_URL}/api/premium/jwt`, {
+          headers: {
+            Authorization: `Bearer ${jwtToken}`,
+            Origin: TEST_WEBSITE_URL,
+          },
+        });
+        console.log("✅ JWT-only endpoint response:", jwtOnlyResponse.data);
+      } catch (error: any) {
+        console.log(
+          "❌ JWT-only endpoint error:",
+          error.response?.data || error.message
+        );
+      }
+
+      // Test 4: Check auth status
+      console.log("\n4d. Testing auth status endpoint...");
+      try {
+        const authStatusResponse = await axios.get(
+          `${BASE_URL}/api/auth/status`,
+          {
+            headers: {
+              Authorization: `Bearer ${jwtToken}`,
+              Origin: TEST_WEBSITE_URL,
+            },
+          }
+        );
+        console.log("✅ Auth status response:", authStatusResponse.data);
+      } catch (error: any) {
+        console.log(
+          "❌ Auth status error:",
+          error.response?.data || error.message
+        );
+      }
+    }
   } catch (error: any) {
     console.log(
       "❌ Premium endpoint with real payment error:",
