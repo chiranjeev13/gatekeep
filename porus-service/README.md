@@ -40,8 +40,8 @@ The server will start on `http://localhost:8000`
 - `POST /api/logout` - Logout and clear JWT cookie
 - `GET /api/protected-websites` - List all protected websites
 - `POST /api/protected-websites` - Add new protected website
-- `PUT /api/protected-websites/{website}` - Update protected website
-- `DELETE /api/protected-websites/{website}` - Delete protected website
+- `PUT /api/protected-websites/:website` - Update protected website
+- `DELETE /api/protected-websites/:website` - Delete protected website
 
 ## Vercel Deployment
 

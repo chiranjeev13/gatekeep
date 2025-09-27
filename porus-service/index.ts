@@ -299,9 +299,9 @@ app.get("/api/protected-websites", async (req, res) => {
 });
 
 // GET /api/protected-websites/:website - Get specific protected website
-app.get("/api/protected-websites/*", async (req, res) => {
+app.get("/api/protected-websites/:website", async (req, res) => {
   try {
-    const website = req.params[0];
+    const website = req.params.website;
     const websiteData = await getProtectedWebsite(website);
 
     if (!websiteData) {
@@ -389,9 +389,9 @@ app.post("/api/protected-websites", async (req, res) => {
 });
 
 // PUT /api/protected-websites/:website - Update protected website
-app.put("/api/protected-websites/*", async (req, res) => {
+app.put("/api/protected-websites/:website", async (req, res) => {
   try {
-    const website = req.params[0];
+    const website = req.params.website;
     const { walletAddress, price, network, description, enabled } = req.body;
 
     const existingWebsite = await getProtectedWebsite(website);
@@ -432,9 +432,9 @@ app.put("/api/protected-websites/*", async (req, res) => {
 });
 
 // DELETE /api/protected-websites/:website - Delete protected website
-app.delete("/api/protected-websites/*", async (req, res) => {
+app.delete("/api/protected-websites/:website", async (req, res) => {
   try {
-    const website = req.params[0];
+    const website = req.params.website;
 
     const existingWebsite = await getProtectedWebsite(website);
     if (!existingWebsite) {
