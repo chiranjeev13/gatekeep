@@ -3,17 +3,20 @@ import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
-import { paymentMiddleware } from "x402-express";
+import axios from "axios";
 
 const app = express();
 const PORT = 8000;
 
 // JWT secret - in production, use environment variables
 const JWT_SECRET =
-  process.env.JWT_SECRET || "your-super-secret-jwt-key-change-in-production";
+  process.env.JWT_SECRET || "your-secret-jwt-key-change-in-production";
 
 // Enable CORS for all origins and handle preflight
 app.use(cors({ origin: "*", credentials: true }));
+
+// Parse JSON bodies
+app.use(express.json());
 
 // Parse cookies
 app.use(cookieParser());
@@ -52,7 +55,7 @@ const checkAuthToken = (
       }
     });
   }
-  
+
   next();
 };
 
@@ -68,8 +71,8 @@ const requireAuth = (
   next();
 };
 
-// Custom middleware that checks auth first, then payment
-const authOrPaymentMiddleware = (
+// Custom middleware that checks auth first, then payment via settle endpoint
+const authOrPaymentMiddleware = async (
   req: express.Request,
   res: express.Response,
   next: express.NextFunction
@@ -84,17 +87,50 @@ const authOrPaymentMiddleware = (
 
   // If user is already authenticated, serve content directly
   if (req.isAuthenticated) {
-    console.log(`🔓 User already authenticated for ${route}, serving content directly`);
+    console.log(
+      `🔓 User already authenticated for ${route}, serving content directly`
+    );
     return next();
-  }  // User not authenticated, apply payment middleware
-  return paymentMiddleware(WALLET_ADDRESS, protectedRoutes, {uri: 'https://polygon-facilitator-iota.vercel.app'})(req, res, (err) => {
-    if (err) return next(err);
+  }
 
-    // If payment was successful, generate JWT token
-    console.log('res.statusCode', res.statusCode);
-    console.log('fuck res.body', res.body);
+  // Check if payment payload is present in request
+  const { paymentPayload, paymentRequirements } = req.body || {};
 
-    if (res.statusCode !== 402) { // 402 = Payment Required
+  if (!paymentPayload || !paymentRequirements) {
+    // Return 402 Payment Required with payment requirements
+    return res.status(402).json({
+      error: "Payment Required",
+      paymentRequirements: {
+        scheme: "exact",
+        network: "polygon-amoy",
+        payTo: WALLET_ADDRESS,
+        maxAmountRequired: "500000", // 0.5 USDC (6 decimals)
+        maxTimeoutSeconds: 3600,
+        asset: "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582", // USDC on Polygon Amoy
+        resource: `https://localhost:${PORT}${route}`,
+        description: protectedRoute.config.description,
+        mimeType: "application/json",
+      },
+    });
+  }
+
+  try {
+    // Call the settle endpoint on the Polygon facilitator
+    const settleResponse = await axios.post(
+      "https://polygon-facilitator.vercel.app/settle",
+      {
+        paymentPayload,
+        paymentRequirements,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    // If settlement was successful, generate JWT token
+    if (settleResponse.data.success === true) {
       try {
         const token = jwt.sign(
           {
@@ -102,6 +138,8 @@ const authOrPaymentMiddleware = (
             paid: true,
             timestamp: new Date().toISOString(),
             price: protectedRoute.price,
+            settlementId:
+              settleResponse.data.transactionHash || settleResponse.data.id,
           },
           JWT_SECRET,
           { expiresIn: "24h" }
@@ -115,15 +153,32 @@ const authOrPaymentMiddleware = (
           maxAge: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
         });
 
-        console.log(`🎟️ JWT token generated and set for ${route}`);
+        console.log(
+          `🎟️ JWT token generated and set for ${route} after successful settlement`
+        );
         req.isAuthenticated = true;
+
+        // Continue to the protected route
+        return next();
       } catch (error) {
         console.error("Error generating JWT token:", error);
+        return res.status(500).json({ error: "Internal server error" });
       }
+    } else {
+      return res.status(402).json({ error: "Payment settlement failed" });
     }
-    
-    next();
-  });
+  } catch (error) {
+    console.error("Settle endpoint error:", error);
+
+    if (axios.isAxiosError(error)) {
+      const statusCode = error.response?.status || 500;
+      const errorMessage =
+        error.response?.data?.error || "Payment settlement failed";
+      return res.status(statusCode).json({ error: errorMessage });
+    }
+
+    return res.status(500).json({ error: "Internal server error" });
+  }
 };
 
 // Apply middlewares in order
@@ -143,7 +198,23 @@ app.get("/health", (req, res) => {
 app.get("/api/premium", (req, res) => {
   res.json({
     message: "Premium content accessed!",
-    access_method: req.isAuthenticated ? "JWT Authentication" : "Direct Payment",
+    access_method: req.isAuthenticated
+      ? "JWT Authentication"
+      : "Direct Payment",
+    premium_data: {
+      insights: "Advanced analytics data",
+      metrics: [87.3, 92.1, 78.5, 95.2],
+      generated_at: new Date().toISOString(),
+    },
+    user: req.user || null,
+  });
+});
+
+// Premium endpoint POST - handles payment and returns content
+app.post("/api/premium", (req, res) => {
+  res.json({
+    message: "Premium content accessed via payment!",
+    access_method: "Direct Payment",
     premium_data: {
       insights: "Advanced analytics data",
       metrics: [87.3, 92.1, 78.5, 95.2],
