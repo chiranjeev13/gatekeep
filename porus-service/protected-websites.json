@@ -1,0 +1,13 @@
+{
+  "https://example.com": {
+    "walletAddress": "0x376b7271dD22D14D82Ef594324ea14e7670ed5b2",
+    "price": "200",
+    "network": "polygon-amoy",
+    "config": {
+      "description": "Updated test website description"
+    },
+    "enabled": true,
+    "createdAt": "2025-09-27T21:12:54.705Z",
+    "updatedAt": "2025-09-27T21:12:54.708Z"
+  }
+}

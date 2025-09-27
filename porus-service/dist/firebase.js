@@ -52,14 +52,64 @@ const firebaseConfig = {
 let firestoreInstance = null;
 function getDb() {
     if (!firestoreInstance) {
-        if (admin.apps.length === 0) {
-            admin.initializeApp({
-                credential: admin.credential.applicationDefault(),
-                projectId: firebaseConfig.projectId,
-            });
+        try {
+            if (admin.apps.length === 0) {
+                // Try to use service account key from environment variable first
+                if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+                    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+                    admin.initializeApp({
+                        credential: admin.credential.cert(serviceAccount),
+                        projectId: firebaseConfig.projectId,
+                    });
+                }
+                else {
+                    // Fallback to application default credentials
+                    admin.initializeApp({
+                        credential: admin.credential.applicationDefault(),
+                        projectId: firebaseConfig.projectId,
+                    });
+                }
+            }
+            firestoreInstance = admin.firestore();
         }
-        firestoreInstance = admin.firestore();
+        catch (error) {
+            console.warn("Firebase initialization failed, using mock database:", error.message);
+            // Return a mock Firestore instance for development
+            firestoreInstance = createMockFirestore();
+        }
     }
     return firestoreInstance;
+}
+// Mock Firestore implementation for development
+function createMockFirestore() {
+    const mockData = {};
+    return {
+        collection: (name) => ({
+            doc: (id) => ({
+                get: async () => ({
+                    exists: !!mockData[id],
+                    data: () => mockData[id],
+                }),
+                set: async (data) => {
+                    mockData[id] = data;
+                    return Promise.resolve();
+                },
+                delete: async () => {
+                    delete mockData[id];
+                    return Promise.resolve();
+                },
+            }),
+            get: async () => ({
+                forEach: (callback) => {
+                    Object.entries(mockData).forEach(([id, data]) => {
+                        callback({
+                            id,
+                            data: () => data,
+                        });
+                    });
+                },
+            }),
+        }),
+    };
 }
 exports.COLLECTION_NAME = process.env.FIREBASE_COLLECTION || "protected-websites";

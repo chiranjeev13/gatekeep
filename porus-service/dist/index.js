@@ -9,7 +9,8 @@ const cors_1 = __importDefault(require("cors"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const axios_1 = __importDefault(require("axios"));
-const firebase_1 = require("./firebase");
+const promises_1 = __importDefault(require("fs/promises"));
+const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
 const PORT = 8000;
 // JWT secret - in production, use environment variables
@@ -22,60 +23,73 @@ app.use(express_1.default.json());
 app.use((0, cookie_parser_1.default)());
 // Your default wallet address to receive payments
 const DEFAULT_WALLET_ADDRESS = "0x376b7271dD22D14D82Ef594324ea14e7670ed5b2";
-// Load protected websites from Firebase
-async function loadProtectedWebsites() {
+// Path to the JSON file for storing protected websites
+const PROTECTED_WEBSITES_FILE = path_1.default.join(process.cwd(), "protected-websites.json");
+// Initialize the JSON file if it doesn't exist
+async function initializeJsonFile() {
     try {
-        const db = (0, firebase_1.getDb)();
-        const websitesCollection = db.collection(firebase_1.COLLECTION_NAME);
-        const querySnapshot = await websitesCollection.get();
-        const websites = {};
-        querySnapshot.forEach((doc) => {
-            websites[doc.id] = doc.data();
-        });
-        return websites;
+        await promises_1.default.access(PROTECTED_WEBSITES_FILE);
     }
     catch (error) {
-        console.error("Error loading protected websites from Firebase:", error);
+        // File doesn't exist, create it with empty object
+        await promises_1.default.writeFile(PROTECTED_WEBSITES_FILE, JSON.stringify({}, null, 2));
+        console.log(`📄 Created new protected websites file: ${PROTECTED_WEBSITES_FILE}`);
+    }
+}
+// Load protected websites from JSON file
+async function loadProtectedWebsites() {
+    try {
+        await initializeJsonFile();
+        const data = await promises_1.default.readFile(PROTECTED_WEBSITES_FILE, 'utf8');
+        return JSON.parse(data);
+    }
+    catch (error) {
+        console.error("Error loading protected websites from JSON file:", error);
         return {};
     }
 }
-// Save protected website to Firebase
+// Save protected websites to JSON file
+async function saveProtectedWebsites(websites) {
+    try {
+        await promises_1.default.writeFile(PROTECTED_WEBSITES_FILE, JSON.stringify(websites, null, 2));
+    }
+    catch (error) {
+        console.error("Error saving protected websites to JSON file:", error);
+        throw error;
+    }
+}
+// Save protected website to JSON file
 async function saveProtectedWebsite(websiteUrl, websiteData) {
     try {
-        const db = (0, firebase_1.getDb)();
-        const websiteDoc = db.collection(firebase_1.COLLECTION_NAME).doc(websiteUrl);
-        await websiteDoc.set(websiteData);
+        const websites = await loadProtectedWebsites();
+        websites[websiteUrl] = websiteData;
+        await saveProtectedWebsites(websites);
     }
     catch (error) {
-        console.error("Error saving protected website to Firebase:", error);
+        console.error("Error saving protected website to JSON file:", error);
         throw error;
     }
 }
-// Delete protected website from Firebase
+// Delete protected website from JSON file
 async function deleteProtectedWebsite(websiteUrl) {
     try {
-        const db = (0, firebase_1.getDb)();
-        const websiteDoc = db.collection(firebase_1.COLLECTION_NAME).doc(websiteUrl);
-        await websiteDoc.delete();
+        const websites = await loadProtectedWebsites();
+        delete websites[websiteUrl];
+        await saveProtectedWebsites(websites);
     }
     catch (error) {
-        console.error("Error deleting protected website from Firebase:", error);
+        console.error("Error deleting protected website from JSON file:", error);
         throw error;
     }
 }
-// Get specific protected website from Firebase
+// Get specific protected website from JSON file
 async function getProtectedWebsite(websiteUrl) {
     try {
-        const db = (0, firebase_1.getDb)();
-        const websiteDoc = db.collection(firebase_1.COLLECTION_NAME).doc(websiteUrl);
-        const docSnap = await websiteDoc.get();
-        if (docSnap.exists) {
-            return docSnap.data();
-        }
-        return null;
+        const websites = await loadProtectedWebsites();
+        return websites[websiteUrl] || null;
     }
     catch (error) {
-        console.error("Error getting protected website from Firebase:", error);
+        console.error("Error getting protected website from JSON file:", error);
         return null;
     }
 }
@@ -294,7 +308,7 @@ app.post("/api/protected-websites", async (req, res) => {
             createdAt: now,
             updatedAt: now,
         };
-        // Save to Firebase
+        // Save to JSON file
         await saveProtectedWebsite(website, websiteData);
         res.status(201).json({
             success: true,
@@ -335,7 +349,7 @@ app.put("/api/protected-websites/:website", async (req, res) => {
         if (enabled !== undefined)
             updatedWebsite.enabled = enabled;
         updatedWebsite.updatedAt = new Date().toISOString();
-        // Save to Firebase
+        // Save to JSON file
         await saveProtectedWebsite(website, updatedWebsite);
         res.json({
             success: true,
@@ -362,7 +376,7 @@ app.delete("/api/protected-websites/:website", async (req, res) => {
                 error: "Protected website not found",
             });
         }
-        // Delete from Firebase
+        // Delete from JSON file
         await deleteProtectedWebsite(website);
         res.json({
             success: true,
@@ -437,14 +451,19 @@ app.post("/api/logout", (req, res) => {
     res.clearCookie("access_token");
     res.json({ message: "Logged out successfully" });
 });
+// Initialize the JSON file on startup
+initializeJsonFile().then(() => {
+    console.log("✅ Protected websites JSON file initialized");
+});
 // Start the server only in development
 if (process.env.NODE_ENV !== "production") {
     app.listen(PORT, () => {
         console.log(`🚀 Server running on http://localhost:${PORT}`);
         console.log(`💰 Default wallet: ${DEFAULT_WALLET_ADDRESS}`);
+        console.log(`📄 JSON storage: ${PROTECTED_WEBSITES_FILE}`);
         console.log(`✅ Health: http://localhost:${PORT}/health`);
         console.log(`💎 Premium (Auth or Pay): http://localhost:${PORT}/api/premium`);
-        console.log(`🌐 Protected websites: Loaded from Firebase`);
+        console.log(`🌐 Protected websites: Loaded from JSON file`);
         console.log(`🔐 JWT Only: http://localhost:${PORT}/api/premium/jwt`);
         console.log(`🔍 Auth Status: http://localhost:${PORT}/api/auth/status`);
         console.log(`🚪 Logout: POST http://localhost:${PORT}/api/logout`);
