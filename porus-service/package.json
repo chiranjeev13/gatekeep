@@ -1,17 +1,24 @@
 {
-  "name": "porus",
+  "name": "porus-service",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Porus payment service with JWT authentication and protected websites",
+  "main": "index.ts",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node --watch porus-service/index.ts",
-    "start": "node porus-service/index.ts",
-    "build": "tsc porus-service/index.ts --outDir dist --target es2020 --module commonjs --esModuleInterop --allowSyntheticDefaultImports --skipLibCheck",
-    "vercel-build": "echo 'Build completed'"
+    "dev": "node --watch index.ts",
+    "start": "node index.ts",
+    "build": "tsc index.ts --outDir dist --target es2020 --module commonjs --esModuleInterop --allowSyntheticDefaultImports --skipLibCheck",
+    "vercel-build": "echo 'Build completed'",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": [
+    "payment",
+    "jwt",
+    "authentication",
+    "express",
+    "vercel",
+    "crypto"
+  ],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.17.1+sha512.17c560fca4867ae9473a3899ad84a88334914f379be46d455cbf92e5cf4b39d34985d452d2583baf19967fa76cb5c17bc9e245529d0b98745721aa7200ecaf7a",
@@ -33,5 +40,8 @@
     "dotenv": "^17.2.2",
     "typescript": "^5.0.0",
     "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
