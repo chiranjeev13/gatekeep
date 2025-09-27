@@ -12,14 +12,15 @@
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "moduleResolution": "node",
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "noImplicitAny": false
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noImplicitAny": false,
+    "types": ["node", "express"]
   },
   "include": [
-    "**/*",
-    "types/**/*"
+    "**/*.ts",
+    "types/**/*.d.ts"
   ],
   "exclude": [
     "node_modules",

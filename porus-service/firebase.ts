@@ -1,8 +1,7 @@
-import { initializeApp, getApps } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import * as admin from "firebase-admin";
 
 /**
- * Initializes Firebase Web SDK using provided config.
+ * Initializes Firebase Admin SDK using provided config.
  * Uses the user-provided client credentials.
  */
 const firebaseConfig = {
@@ -13,16 +12,19 @@ const firebaseConfig = {
   messagingSenderId: "7597607861",
   appId: "1:7597607861:web:e46f41168aa883d49867fc",
   measurementId: "G-HLJ51Z9TCP",
-} as const;
+};
 
-let firestoreInstance: ReturnType<typeof getFirestore> | null = null;
+let firestoreInstance: admin.firestore.Firestore | null = null;
 
 export function getDb() {
   if (!firestoreInstance) {
-    if (getApps().length === 0) {
-      initializeApp(firebaseConfig);
+    if (admin.apps.length === 0) {
+      admin.initializeApp({
+        credential: admin.credential.applicationDefault(),
+        projectId: firebaseConfig.projectId,
+      });
     }
-    firestoreInstance = getFirestore();
+    firestoreInstance = admin.firestore();
   }
   return firestoreInstance;
 }

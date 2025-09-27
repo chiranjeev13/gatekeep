@@ -29,3 +29,12 @@ declare module "@coinbase/x402" {
   ): FacilitatorConfig;
 }
 
+// Extend Express Request and Response interfaces
+declare global {
+  namespace Express {
+    interface Request {
+      user?: any;
+      isAuthenticated?: boolean;
+    }
+  }
+}

@@ -1,20 +1,11 @@
 /// <reference path="./types/ambient.d.ts" />
+/// <reference types="express" />
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
 import axios from "axios";
 import { getDb, COLLECTION_NAME } from "./firebase";
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  setDoc,
-  deleteDoc,
-  query,
-  where,
-} from "firebase/firestore";
 
 const app = express();
 const PORT = 8000;
@@ -54,8 +45,8 @@ async function loadProtectedWebsites(): Promise<
 > {
   try {
     const db = getDb();
-    const websitesCollection = collection(db, COLLECTION_NAME);
-    const querySnapshot = await getDocs(websitesCollection);
+    const websitesCollection = db.collection(COLLECTION_NAME);
+    const querySnapshot = await websitesCollection.get();
 
     const websites: Record<string, ProtectedWebsite> = {};
     querySnapshot.forEach((doc) => {
@@ -76,8 +67,8 @@ async function saveProtectedWebsite(
 ): Promise<void> {
   try {
     const db = getDb();
-    const websiteDoc = doc(db, COLLECTION_NAME, websiteUrl);
-    await setDoc(websiteDoc, websiteData);
+    const websiteDoc = db.collection(COLLECTION_NAME).doc(websiteUrl);
+    await websiteDoc.set(websiteData);
   } catch (error) {
     console.error("Error saving protected website to Firebase:", error);
     throw error;
@@ -88,8 +79,8 @@ async function saveProtectedWebsite(
 async function deleteProtectedWebsite(websiteUrl: string): Promise<void> {
   try {
     const db = getDb();
-    const websiteDoc = doc(db, COLLECTION_NAME, websiteUrl);
-    await deleteDoc(websiteDoc);
+    const websiteDoc = db.collection(COLLECTION_NAME).doc(websiteUrl);
+    await websiteDoc.delete();
   } catch (error) {
     console.error("Error deleting protected website from Firebase:", error);
     throw error;
@@ -102,10 +93,10 @@ async function getProtectedWebsite(
 ): Promise<ProtectedWebsite | null> {
   try {
     const db = getDb();
-    const websiteDoc = doc(db, COLLECTION_NAME, websiteUrl);
-    const docSnap = await getDoc(websiteDoc);
+    const websiteDoc = db.collection(COLLECTION_NAME).doc(websiteUrl);
+    const docSnap = await websiteDoc.get();
 
-    if (docSnap.exists()) {
+    if (docSnap.exists) {
       return docSnap.data() as ProtectedWebsite;
     }
     return null;
@@ -553,16 +544,6 @@ if (process.env.NODE_ENV !== "production") {
       `   DELETE http://localhost:${PORT}/api/protected-websites/{website}`
     );
   });
-}
-
-// Extend Express Request interface
-declare global {
-  namespace Express {
-    interface Request {
-      user?: any;
-      isAuthenticated?: boolean;
-    }
-  }
 }
 
 // Export the app for Vercel
