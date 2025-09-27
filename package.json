@@ -19,10 +19,14 @@
     "@types/jsonwebtoken": "^9.0.10",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.2",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
+    "viem": "^2.37.8",
     "x402": "^0.6.5",
+    "x402-axios": "^0.6.5",
     "x402-express": "^0.6.5"
+  },
+  "devDependencies": {
+    "dotenv": "^17.2.2"
   }
 }
