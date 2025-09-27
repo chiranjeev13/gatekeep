@@ -2,13 +2,13 @@
   "name": "porus-service",
   "version": "1.0.0",
   "description": "Porus payment service with JWT authentication and protected websites",
-  "main": "index.ts",
-  "type": "module",
+  "main": "index.js",
+  "type": "commonjs",
   "scripts": {
-    "dev": "node --watch index.ts",
-    "start": "node index.ts",
-    "build": "tsc index.ts --outDir dist --target es2020 --module commonjs --esModuleInterop --allowSyntheticDefaultImports --skipLibCheck",
-    "vercel-build": "echo 'Build completed'",
+    "dev": "ts-node --watch index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc",
+    "vercel-build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -42,7 +42,8 @@
     "typescript": "^5.0.0",
     "@types/node": "^20.0.0",
     "@types/express": "^4.17.21",
-    "@types/cors": "^2.8.17"
+    "@types/cors": "^2.8.17",
+    "ts-node": "^10.9.1"
   },
   "engines": {
     "node": ">=18.0.0"
