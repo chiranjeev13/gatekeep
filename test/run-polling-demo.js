@@ -18,16 +18,17 @@ const USDC_CONTRACT = "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582";
 
 // Configuration for polling
 const POLLING_CONFIG = {
-  url: "https://whatwasthatmeme.org/search?q=meme",
+  url: "https://whatwasthatmeme.org",
   interval: 1000, // 1 second - fast polling
   maxAttempts: 20, // More attempts for fast polling
-  timeout: 5000, // 5 second timeout per request
+  timeout: 30000, // 30 second timeout per request (increased for payment processing)
 };
 
 // Polling state
 let pollCount = 0;
 let isPolling = false;
 let pollInterval = null;
+let jwtToken = null; // Store JWT token for authenticated requests
 
 // Generate EIP-3009 signature for USDC transfer
 async function generatePaymentSignature(paymentRequirements) {
@@ -71,13 +72,20 @@ async function generatePaymentSignature(paymentRequirements) {
 // Function to handle payment when 402 is received
 async function handlePayment(paymentRequirements) {
   console.log("\n💰 Processing payment automatically...");
+  console.log(
+    `📋 Payment Requirements:`,
+    JSON.stringify(paymentRequirements, null, 2)
+  );
 
   try {
     // Generate payment signature
+    console.log(`🔐 Generating EIP-3009 signature...`);
     const { signature, message } = await generatePaymentSignature(
       paymentRequirements
     );
     console.log("✅ Payment signature generated");
+    console.log(`📝 Signature: ${signature.substring(0, 20)}...`);
+    console.log(`📄 Authorization message:`, JSON.stringify(message, null, 2));
 
     // Create payment payload
     const paymentPayload = {
@@ -92,34 +100,60 @@ async function handlePayment(paymentRequirements) {
       },
     };
 
-    // Post to facilitator settle endpoint
-    const response = await axiosInstance.post(
-      "https://polygon-facilitator.vercel.app/settle",
-      {
-        paymentPayload,
-        paymentRequirements,
-      },
+    console.log(
+      `📦 Payment payload created:`,
+      JSON.stringify(paymentPayload, null, 2)
+    );
+
+    // Make the payment request to the premium endpoint
+    console.log(
+      `🚀 Making payment request to: http://localhost:8000/api/premium`
+    );
+    const response = await axiosInstance.get(
+      "http://localhost:8000/api/premium",
       {
         headers: {
-          "Content-Type": "application/json",
+          "x-payment-payload": JSON.stringify(paymentPayload),
+          "x-payment-requirements": JSON.stringify(paymentRequirements),
+          Origin: POLLING_CONFIG.url,
         },
       }
     );
 
+    console.log(
+      `📊 Payment response status: ${response.status} ${response.statusText}`
+    );
+    console.log("🍪 Response cookies:", response.headers);
+
+    // Extract JWT token from cookies
+    const accessTokenCookie = response.headers["set-cookie"]?.find((cookie) =>
+      cookie.startsWith("access_token=")
+    );
+
+    let jwtToken = null;
+    if (accessTokenCookie) {
+      jwtToken = accessTokenCookie.split("access_token=")[1].split(";")[0];
+      console.log("🔑 Extracted JWT Token:", jwtToken);
+    } else {
+      console.log("⚠️  No access_token cookie found in response");
+    }
+
     console.log("✅ Payment successful! Response:", response.data);
-    return true;
+    return { success: true, jwtToken };
   } catch (error) {
-    console.log("❌ Payment failed:", error.response?.data || error.message);
-    return false;
+    console.log("❌ Payment failed:");
+    console.log(
+      `📊 Error status: ${error.response?.status} ${error.response?.statusText}`
+    );
+    console.log(`📄 Error data:`, error.response?.data || error.message);
+    console.log(`🔗 Error headers:`, error.response?.headers);
+    return { success: false, jwtToken: null };
   }
 }
 
 // Create axios instance with timeout
 const axiosInstance = axios.create({
   timeout: POLLING_CONFIG.timeout,
-  headers: {
-    "User-Agent": "Porus-Polling-Test/1.0",
-  },
 });
 
 // Function to make a single request
@@ -127,9 +161,19 @@ async function makeRequest() {
   const attemptNumber = pollCount + 1;
 
   try {
-    const response = await axiosInstance.get(POLLING_CONFIG.url);
+    // Prepare headers - include JWT token if we have one
+    const headers = {
+      "User-Agent": "Porus-Polling-Test/1.0",
+    };
 
-    // Only log if we get a 402 status
+    if (jwtToken) {
+      headers["Authorization"] = `Bearer ${jwtToken}`;
+      console.log(`🔑 Using JWT token for attempt #${attemptNumber}`);
+    }
+
+    const response = await axiosInstance.get(POLLING_CONFIG.url, { headers });
+
+    // Handle 402 Payment Required
     if (response.status === 402) {
       console.log(`\n🚨 402 Payment Required - Attempt #${attemptNumber}`);
       console.log(`📊 Status: ${response.status} ${response.statusText}`);
@@ -138,24 +182,40 @@ async function makeRequest() {
         `📄 Response Data: ${JSON.stringify(response.data, null, 2)}`
       );
 
+      // Stop polling when we hit 402
+      console.log(`🛑 Stopping polling due to 402 Payment Required`);
+      stopPolling();
+
       // Automatically handle payment if paymentRequirements are present
       if (response.data.paymentRequirements) {
-        const paymentSuccess = await handlePayment(
+        console.log(`💰 Processing payment for 402 response...`);
+        const paymentResult = await handlePayment(
           response.data.paymentRequirements
         );
-        if (paymentSuccess) {
-          console.log(
-            "🎉 Payment processed successfully! Continuing polling..."
-          );
+        if (paymentResult.success) {
+          jwtToken = paymentResult.jwtToken; // Store the JWT token
+          console.log("🎉 Payment processed successfully! JWT token stored.");
+          console.log(`🔑 JWT Token: ${jwtToken}`);
+        } else {
+          console.log("❌ Payment failed. Demo ended.");
         }
+      } else {
+        console.log(
+          "❌ No payment requirements found in 402 response. Demo ended."
+        );
       }
+
+      return; // Exit early after handling 402
     } else {
       console.log(
         `✅ Success - Attempt #${attemptNumber} - Status: ${response.status}`
       );
+      if (jwtToken) {
+        console.log(`🔓 Authenticated access successful with JWT token`);
+      }
     }
   } catch (error) {
-    // Only log if we get a 402 error
+    // Handle 402 error from axios
     if (axios.isAxiosError(error) && error.response?.status === 402) {
       console.log(`\n🚨 402 Payment Required - Attempt #${attemptNumber}`);
       console.log(
@@ -168,17 +228,30 @@ async function makeRequest() {
         `📄 Error Data: ${JSON.stringify(error.response.data, null, 2)}`
       );
 
+      // Stop polling when we hit 402
+      console.log(`🛑 Stopping polling due to 402 Payment Required`);
+      stopPolling();
+
       // Automatically handle payment if paymentRequirements are present
       if (error.response.data.paymentRequirements) {
-        const paymentSuccess = await handlePayment(
+        console.log(`💰 Processing payment for 402 error...`);
+        const paymentResult = await handlePayment(
           error.response.data.paymentRequirements
         );
-        if (paymentSuccess) {
-          console.log(
-            "🎉 Payment processed successfully! Continuing polling..."
-          );
+        if (paymentResult.success) {
+          jwtToken = paymentResult.jwtToken; // Store the JWT token
+          console.log("🎉 Payment processed successfully! JWT token stored.");
+          console.log(`🔑 JWT Token: ${jwtToken}`);
+        } else {
+          console.log("❌ Payment failed. Demo ended.");
         }
+      } else {
+        console.log(
+          "❌ No payment requirements found in 402 error. Demo ended."
+        );
       }
+
+      return; // Exit early after handling 402
     } else {
       console.log(`❌ Error - Attempt #${attemptNumber}: ${error.message}`);
     }
@@ -222,9 +295,28 @@ function stopPolling() {
     clearInterval(pollInterval);
     pollInterval = null;
   }
+
+  console.log(`\n🛑 Polling stopped after ${pollCount} attempts`);
+  if (jwtToken) {
+    console.log(`🔑 JWT token was active during polling`);
+  }
 }
 
 // Main execution
+console.log("🚀 Starting Porus Polling Demo");
+console.log(`📡 Target URL: ${POLLING_CONFIG.url}`);
+console.log(`⏱️  Polling interval: ${POLLING_CONFIG.interval}ms`);
+console.log(`🔄 Max attempts: ${POLLING_CONFIG.maxAttempts}`);
+console.log(`⏰ Timeout per request: ${POLLING_CONFIG.timeout}ms`);
+console.log(`💰 USDC Contract: ${USDC_CONTRACT}`);
+console.log(`🔑 Wallet Address: ${account.address}`);
+console.log(`🌐 Network: Polygon Amoy (Chain ID: 80002)`);
+console.log("=".repeat(50));
+console.log(
+  "📝 Note: Polling will stop automatically when 402 Payment Required is received"
+);
+console.log("=".repeat(50));
+
 // Start polling
 startPolling();
 

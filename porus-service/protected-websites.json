@@ -9,5 +9,16 @@
     "enabled": true,
     "createdAt": "2025-09-27T21:12:54.705Z",
     "updatedAt": "2025-09-27T21:12:54.708Z"
+  },
+  "https://whatwasthatmeme.org": {
+    "walletAddress": "0x376b7271dD22D14D82Ef594324ea14e7670ed5b2",
+    "price": "100",
+    "network": "polygon-amoy",
+    "config": {
+      "description": "Premium content access"
+    },
+    "enabled": true,
+    "createdAt": "2025-09-28T01:11:50.000Z",
+    "updatedAt": "2025-09-28T01:11:50.000Z"
   }
 }
