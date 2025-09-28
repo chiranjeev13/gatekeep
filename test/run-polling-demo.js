@@ -196,6 +196,8 @@ async function makeRequest() {
           jwtToken = paymentResult.jwtToken; // Store the JWT token
           console.log("🎉 Payment processed successfully! JWT token stored.");
           console.log(`🔑 JWT Token: ${jwtToken}`);
+
+          await makeAuthenticatedRequests(jwtToken, 3, 2000);
         } else {
           console.log("❌ Payment failed. Demo ended.");
         }
@@ -242,6 +244,9 @@ async function makeRequest() {
           jwtToken = paymentResult.jwtToken; // Store the JWT token
           console.log("🎉 Payment processed successfully! JWT token stored.");
           console.log(`🔑 JWT Token: ${jwtToken}`);
+
+          // Make 3 authenticated requests with the JWT token
+          await makeAuthenticatedRequests(jwtToken, 3, 2000);
         } else {
           console.log("❌ Payment failed. Demo ended.");
         }
@@ -281,6 +286,56 @@ function startPolling() {
 
     await makeRequest();
   }, POLLING_CONFIG.interval);
+}
+
+// Function to make authenticated requests with JWT token
+async function makeAuthenticatedRequests(
+  token,
+  numRequests = 3,
+  delayMs = 2000
+) {
+  console.log(
+    `\n🔐 Making ${numRequests} authenticated requests with JWT token...`
+  );
+
+  for (let i = 1; i <= numRequests; i++) {
+    try {
+      console.log(`\n📡 Authenticated Request #${i}/${numRequests}`);
+
+      const headers = {
+        "User-Agent": "Porus-Polling-Test/1.0",
+        Authorization: `Bearer ${token}`,
+      };
+
+      const response = await axiosInstance.get(POLLING_CONFIG.url, { headers });
+
+      console.log(
+        `✅ Request #${i} - Status: ${response.status} ${response.statusText}`
+      );
+      console.log(`🔓 Authenticated access successful with JWT token`);
+
+      if (response.data) {
+        console.log(
+          `📄 Response data:`,
+          JSON.stringify(response.data, null, 2)
+        );
+      }
+
+      // Add delay between requests (except for the last one)
+      if (i < numRequests) {
+        console.log(`⏳ Waiting ${delayMs}ms before next request...`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    } catch (error) {
+      console.log(`❌ Authenticated Request #${i} failed: ${error.message}`);
+      if (error.response) {
+        console.log(
+          `📊 Error status: ${error.response.status} ${error.response.statusText}`
+        );
+        console.log(`📄 Error data:`, error.response.data);
+      }
+    }
+  }
 }
 
 // Function to stop polling
